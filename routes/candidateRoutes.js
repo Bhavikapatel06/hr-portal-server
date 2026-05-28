@@ -269,9 +269,16 @@ router.get('/candidates', async (req, res) => {
 router.post('/candidates/export-local', async (req, res) => {
   const { jobOpeningId } = req.body;
   try {
-    const candidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
-    const opening = await JobOpening.findById(jobOpeningId);
-
+    let candidates;
+    let opening = null;
+    
+    if (jobOpeningId) {
+      candidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
+      opening = await JobOpening.findById(jobOpeningId);
+    } else {
+      candidates = await Candidate.find().populate('jobOpeningId').sort({ createdAt: -1 });
+    }
+    
     // Headers matching user's photo report format
     const headers = [
       'Sr No', 'Candidate Name', 'Contact No', 'Alternet number', 'Mail ID',
@@ -287,15 +294,16 @@ router.post('/candidates/export-local', async (req, res) => {
 
     const rows = candidates.map((c, index) => {
       const d = c.details || {};
+      const jobOpening = c.jobOpeningId;
       return [
         index + 1,
         d.fullName || '',
         d.phone || '',
         d.alternatePhone || '',
         d.email || '',
-        opening?.designation || '',
-        opening?.department || '',
-        opening?.location || '',
+        (jobOpening && typeof jobOpening === 'object' ? jobOpening.designation : null) || opening?.designation || d.currentTitle || 'N/A',
+        (jobOpening && typeof jobOpening === 'object' ? jobOpening.department : null) || opening?.department || 'N/A',
+        (jobOpening && typeof jobOpening === 'object' ? jobOpening.location : null) || opening?.location || d.currentLocation || 'N/A',
         d.highestQual || '',
         d.totalExp || '',
         d.currentLocation || '',
