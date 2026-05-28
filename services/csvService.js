@@ -1,11 +1,22 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import Candidate from '../models/Candidate.js';
 import JobOpening from '../models/JobOpening.js';
 import { scoreCandidate } from './matchService.js';
 
+<<<<<<< Updated upstream
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
+=======
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Fixed path — uses local exports folder inside project
+const EXPORTS_DIR = process.env.CSV_OUTPUT_PATH
+  ? path.resolve(process.env.CSV_OUTPUT_PATH)
+  : path.join(__dirname, '..', 'exports');
+>>>>>>> Stashed changes
 
 // Get clean filename path
 export function getCSVPath(jobOpeningId, designation = 'Position') {
@@ -28,7 +39,7 @@ function parseCSV(text) {
     if (c === '"') {
       if (inQuotes && next === '"') {
         row[row.length - 1] += '"';
-        i++; // skip next quote
+        i++;
       } else {
         inQuotes = !inQuotes;
       }
@@ -120,13 +131,16 @@ export async function writeCandidatesToCSV(jobOpeningId, designation, candidates
 }
 
 /**
- * Reads candidates from local CSV file, syncs them back to DB on change, and returns candidates
+ * Reads candidates from local CSV file, syncs them back to DB on change
  */
 export async function readCandidatesFromCSV(jobOpeningId, designation) {
   try {
     const filePath = getCSVPath(jobOpeningId, designation);
 
+<<<<<<< Updated upstream
     // If file doesn't exist, retrieve from database, generate it, and return candidates
+=======
+>>>>>>> Stashed changes
     if (!fs.existsSync(filePath)) {
       const candidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
       await writeCandidatesToCSV(jobOpeningId, designation, candidates);
@@ -137,10 +151,7 @@ export async function readCandidatesFromCSV(jobOpeningId, designation) {
     const fileContent = fs.readFileSync(filePath, 'utf-8');
     const rows = parseCSV(fileContent);
 
-    if (rows.length <= 1) {
-      // Empty or headers only
-      return [];
-    }
+    if (rows.length <= 1) return [];
 
     const headers = rows[0].map(h => h.trim());
     const idIdx = headers.indexOf('Candidate ID');
@@ -177,7 +188,6 @@ export async function readCandidatesFromCSV(jobOpeningId, designation) {
 
     const candidates = [];
 
-    // Parse each row starting from index 1 (skipping header)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (row.length < 2 || !row.some(val => val.trim())) continue;
@@ -202,12 +212,10 @@ export async function readCandidatesFromCSV(jobOpeningId, designation) {
 
       let candidate = null;
 
-      // 1. Try to find candidate in database
       if (candIdStr && mongoose.Types.ObjectId.isValid(candIdStr)) {
         candidate = await Candidate.findById(candIdStr);
       }
 
-      // If candidate was deleted in DB or manual offline entry, create new
       if (!candidate) {
         candidate = new Candidate({
           jobOpeningId,
@@ -217,7 +225,6 @@ export async function readCandidatesFromCSV(jobOpeningId, designation) {
         });
       }
 
-      // 2. Sync parsed columns to details
       candidate.details = {
         fullName,
         email,
@@ -238,7 +245,10 @@ export async function readCandidatesFromCSV(jobOpeningId, designation) {
 
       candidate.overallStatus = overallStatus;
 
+<<<<<<< Updated upstream
       // 3. Recalculate score on load in case CSV values edited offline
+=======
+>>>>>>> Stashed changes
       const combinedDetails = {
         ...candidate.details,
         notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}`
@@ -252,7 +262,6 @@ export async function readCandidatesFromCSV(jobOpeningId, designation) {
       candidates.push(candidate);
     }
 
-    // Sort descending by score
     candidates.sort((a, b) => b.matchScore - a.matchScore);
     return candidates;
   } catch (error) {

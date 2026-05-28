@@ -1,6 +1,6 @@
-import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
+import pdfParse from 'pdf-parse';
 
 // Guess candidate name from file name
 const guessName = (fileName = '') =>
@@ -16,7 +16,7 @@ const guessName = (fileName = '') =>
     .trim() || fileName;
 
 /**
- * Fallback parser using Regex and standard keyword matchers when Gemini is unavailable.
+ * Fallback parser using Regex and standard keyword matchers when Groq is unavailable.
  */
 function fallbackParse(text, fileName) {
   // 1. Email extraction
@@ -24,13 +24,12 @@ function fallbackParse(text, fileName) {
   const email = emailMatch ? emailMatch[0] : '';
 
   // 2. Phone extraction
-  const phoneMatch = text.match(/(\+?\d{1,4}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/) || 
+  const phoneMatch = text.match(/(\+?\d{1,4}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/) ||
                      text.match(/\+?\d{10,12}/);
   const phone = phoneMatch ? phoneMatch[0] : '';
 
   // 3. Name guess
   let fullName = guessName(fileName);
-  // Try to find name at the very beginning of the resume (first 2-3 lines)
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length > 0 && lines[0].length > 3 && lines[0].length < 30 && !lines[0].toLowerCase().includes('resume')) {
     fullName = lines[0];
@@ -50,18 +49,24 @@ function fallbackParse(text, fileName) {
     }
   }
 
-  // 6. Skills guess - check for common tech skills
+  // 6. Skills guess - check for common tech skills (fixed c++ regex)
   const commonSkills = [
-    'react', 'node', 'express', 'mongodb', 'javascript', 'html', 'css', 'tailwind', 
-    'typescript', 'angular', 'vue', 'python', 'django', 'flask', 'sql', 'postgresql', 
-    'java', 'c++', 'c#', 'php', 'aws', 'docker', 'kubernetes', 'git', 'excel', 'agile'
+    'react', 'node', 'express', 'mongodb', 'javascript', 'html', 'css', 'tailwind',
+    'typescript', 'angular', 'vue', 'python', 'django', 'flask', 'sql', 'postgresql',
+    'java', 'c\\+\\+', 'c#', 'php', 'aws', 'docker', 'kubernetes', 'git', 'excel', 'agile'
   ];
+<<<<<<< Updated upstream
   const matchedSkills = commonSkills.filter(skill => {
     const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const startB = /^[\w]/.test(skill) ? '\\b' : '';
     const endB = /[\w]$/.test(skill) ? '\\b' : '';
     return new RegExp(`${startB}${escaped}${endB}`, 'i').test(text);
   }).map(s => s[0].toUpperCase() + s.slice(1));
+=======
+  const matchedSkills = commonSkills.filter(skill =>
+    new RegExp('\\b' + skill + '\\b', 'i').test(text)
+  ).map(s => s.replace('\\+\\+', '++')[0].toUpperCase() + s.replace('\\+\\+', '++').slice(1));
+>>>>>>> Stashed changes
   const skills = matchedSkills.join(', ');
 
   // 7. Current title
@@ -88,7 +93,7 @@ function fallbackParse(text, fileName) {
 
 /**
  * Main parser entry point. Reads file based on mime type, extracts raw text,
- * and calls Gemini AI or fallback regex parser to get details.
+ * and calls Groq AI or fallback regex parser to get details.
  */
 export async function parseResume(fileBuffer, fileName, mimeType) {
   let rawText = '';
@@ -110,13 +115,12 @@ export async function parseResume(fileBuffer, fileName, mimeType) {
       throw new Error('Could not extract any text from the file.');
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     if (apiKey && apiKey.trim().length > 0) {
       try {
-        console.log(`Using Gemini AI API for parsing resume: ${fileName}`);
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        
+        console.log(`Using Groq AI for parsing resume: ${fileName}`);
+        const groq = new Groq({ apiKey });
+
         const prompt = `You are an expert resume parsing system. Given the text extracted from a candidate's resume, extract their key profile details.
 Return ONLY a valid JSON object matching this structure:
 {
@@ -131,41 +135,46 @@ Return ONLY a valid JSON object matching this structure:
 Do not include any Markdown blocks, backticks, or prefix. Return raw JSON string ONLY.
 
 Resume Text:
-${rawText.slice(0, 10000)} // Truncated to stay safe within model token limits
-`;
+${rawText.slice(0, 4000)}`;
 
-        const result = await model.generateContent(prompt);
-        const responseText = result.response.text().trim();
-        
-        // Clean markdown code blocks if the model accidentally returns them
+        const result = await groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 1024,
+          temperature: 0.1
+        });
+
+        const responseText = result.choices[0].message.content.trim();
+
+        // Clean markdown code blocks if model accidentally returns them
         let jsonStr = responseText;
         if (jsonStr.startsWith('```')) {
           jsonStr = jsonStr.replace(/^```(json)?\n/, '').replace(/\n```$/, '');
         }
-        
+
         const details = JSON.parse(jsonStr);
         return {
           details: {
-            fullName: details.fullName || guessName(fileName),
-            email: details.email || '',
-            phone: details.phone || '',
+            fullName:     details.fullName     || guessName(fileName),
+            email:        details.email        || '',
+            phone:        details.phone        || '',
             currentTitle: details.currentTitle || '',
-            totalExp: details.totalExp || '',
-            highestQual: details.highestQual || '',
-            skills: details.skills || '',
-            notes: 'Successfully parsed using Gemini AI.'
+            totalExp:     details.totalExp     || '',
+            highestQual:  details.highestQual  || '',
+            skills:       details.skills       || '',
+            notes: 'Successfully parsed using Groq AI.'
           },
           status: 'parsed'
         };
-      } catch (geminiError) {
-        console.warn('Gemini AI parsing failed, resorting to fallback parser:', geminiError.message);
+      } catch (groqError) {
+        console.warn('Groq AI parsing failed, resorting to fallback parser:', groqError.message);
         return {
           details: fallbackParse(rawText, fileName),
           status: 'parsed'
         };
       }
     } else {
-      console.log(`No GEMINI_API_KEY config. Using fallback parser for: ${fileName}`);
+      console.log(`No GROQ_API_KEY config. Using fallback parser for: ${fileName}`);
       return {
         details: fallbackParse(rawText, fileName),
         status: 'parsed'
@@ -175,18 +184,19 @@ ${rawText.slice(0, 10000)} // Truncated to stay safe within model token limits
     console.error(`Error parsing file ${fileName}:`, error);
     return {
       details: {
-        fullName: guessName(fileName),
-        email: '',
-        phone: '',
+        fullName:     guessName(fileName),
+        email:        '',
+        phone:        '',
         currentTitle: '',
-        totalExp: '',
-        highestQual: '',
-        skills: '',
+        totalExp:     '',
+        highestQual:  '',
+        skills:       '',
         notes: `Failed to parse file text: ${error.message}`
       },
       status: 'failed'
     };
   }
+<<<<<<< Updated upstream
 }
 
 /**
@@ -353,3 +363,6 @@ ${rawText.slice(0, 10000)}
     };
   }
 }
+=======
+}
+>>>>>>> Stashed changes
