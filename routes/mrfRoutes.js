@@ -1,8 +1,57 @@
 import express from 'express';
+import multer from 'multer';
+import fs from 'fs';
 import JobOpening from '../models/JobOpening.js';
 import Candidate from '../models/Candidate.js';
+import { parseMRF } from '../services/parserService.js';
 
 const router = express.Router();
+
+// Configure multer for file uploads
+const uploadDir = 'uploads/';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+
+const upload = multer({ storage });
+
+// Upload and parse MRF file
+router.post('/parse', upload.single('mrfFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const parsed = await parseMRF(fileBuffer, req.file.originalname, req.file.mimetype);
+
+    // Clean up uploaded file from disk after parsing
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    if (parsed.status === 'failed') {
+      return res.status(422).json({ message: parsed.details.notes });
+    }
+
+    res.json(parsed.details);
+  } catch (error) {
+    console.error('Error parsing MRF file:', error);
+    // Cleanup if file still exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ message: error.message });
+  }
+});
 
 // Create new MRF / opening
 router.post('/', async (req, res) => {
