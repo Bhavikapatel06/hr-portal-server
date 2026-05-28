@@ -319,8 +319,12 @@ router.post('/candidates/export-local', async (req, res) => {
       )
     ].join('\n');
 
-    // Write directly to user's local path!
-    const targetPath = 'C:\\Users\\Neel_Patel\\Desktop\\AIA\\Book1.csv';
+    // Write directly to local path!
+    const exportsDir = path.join(process.cwd(), 'exports');
+    if (!fs.existsSync(exportsDir)) {
+      fs.mkdirSync(exportsDir, { recursive: true });
+    }
+    const targetPath = path.join(exportsDir, 'Book1.csv');
     fs.writeFileSync(targetPath, csvContent, 'utf-8');
     
     res.json({ message: `Data successfully exported to ${targetPath}` });
