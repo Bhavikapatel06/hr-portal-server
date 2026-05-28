@@ -5,7 +5,7 @@ import Candidate from '../models/Candidate.js';
 import JobOpening from '../models/JobOpening.js';
 import { scoreCandidate } from './matchService.js';
 
-const EXPORTS_DIR = 'C:\\Users\\Neel_Patel\\Desktop\\AIA';
+const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 
 // Get clean filename path
 export function getCSVPath(jobOpeningId, designation = 'Position') {

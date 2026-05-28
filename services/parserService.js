@@ -56,9 +56,12 @@ function fallbackParse(text, fileName) {
     'typescript', 'angular', 'vue', 'python', 'django', 'flask', 'sql', 'postgresql', 
     'java', 'c++', 'c#', 'php', 'aws', 'docker', 'kubernetes', 'git', 'excel', 'agile'
   ];
-  const matchedSkills = commonSkills.filter(skill => 
-    new RegExp(`\\b${skill}\\b`, 'i').test(text)
-  ).map(s => s[0].toUpperCase() + s.slice(1));
+  const matchedSkills = commonSkills.filter(skill => {
+    const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const startB = /^[\w]/.test(skill) ? '\\b' : '';
+    const endB = /[\w]$/.test(skill) ? '\\b' : '';
+    return new RegExp(`${startB}${escaped}${endB}`, 'i').test(text);
+  }).map(s => s[0].toUpperCase() + s.slice(1));
   const skills = matchedSkills.join(', ');
 
   // 7. Current title
