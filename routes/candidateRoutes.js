@@ -257,7 +257,7 @@ router.delete('/candidates/:id', async (req, res) => {
 // Get all candidates across all openings (for general metrics/dashboard)
 router.get('/candidates', async (req, res) => {
   try {
-    const candidates = await Candidate.find().sort({ createdAt: -1 });
+    const candidates = await Candidate.find().populate('jobOpeningId').sort({ createdAt: -1 });
     res.json(candidates);
   } catch (error) {
     console.error('Error retrieving all candidates:', error);
