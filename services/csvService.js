@@ -125,7 +125,7 @@ export async function writeCandidatesToCSV(jobOpeningId, designation, candidates
 export async function readCandidatesFromCSV(jobOpeningId, designation) {
   try {
     const filePath = getCSVPath(jobOpeningId, designation);
-    
+
     // If file doesn't exist, retrieve from database, generate it, and return candidates
     if (!fs.existsSync(filePath)) {
       const candidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
@@ -239,9 +239,9 @@ export async function readCandidatesFromCSV(jobOpeningId, designation) {
       candidate.overallStatus = overallStatus;
 
       // 3. Recalculate score on load in case CSV values edited offline
-      const combinedDetails = { 
-        ...candidate.details, 
-        notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}` 
+      const combinedDetails = {
+        ...candidate.details,
+        notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}`
       };
       const match = scoreCandidate(combinedDetails, requirements);
       candidate.matchScore = match.score;

@@ -48,7 +48,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
         try {
           const fileBuffer = fs.readFileSync(file.path);
           const parsed = await parseResume(fileBuffer, file.originalname, file.mimetype);
-          
+
           // Score against Job Opening requirements
           const requirements = {
             designation: opening.designation,
@@ -57,9 +57,9 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
             minimumQualification: opening.minimumQualification,
             otherKeySkills: opening.otherKeySkills
           };
-          const combinedDetails = { 
-            ...parsed.details, 
-            notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}` 
+          const combinedDetails = {
+            ...parsed.details,
+            notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}`
           };
           const match = scoreCandidate(combinedDetails, requirements);
 
@@ -75,7 +75,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
             matchBreakdown: match.breakdown,
             overallStatus: 'new'
           });
-          
+
           await candidate.save();
           candidates.push(candidate);
         } catch (fileError) {
@@ -144,9 +144,9 @@ router.put('/candidates/:id/details', async (req, res) => {
         minimumQualification: opening.minimumQualification,
         otherKeySkills: opening.otherKeySkills
       };
-      const combinedDetails = { 
-        ...candidate.details, 
-        notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}` 
+      const combinedDetails = {
+        ...candidate.details,
+        notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}`
       };
       const match = scoreCandidate(combinedDetails, requirements);
       candidate.matchScore = match.score;
@@ -271,7 +271,7 @@ router.post('/candidates/export-local', async (req, res) => {
   try {
     const candidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
     const opening = await JobOpening.findById(jobOpeningId);
-    
+
     // Headers matching user's photo report format
     const headers = [
       'Sr No', 'Candidate Name', 'Contact No', 'Alternet number', 'Mail ID',
@@ -311,7 +311,7 @@ router.post('/candidates/export-local', async (req, res) => {
 
     const csvContent = [
       headers.join(','),
-      ...rows.map(row => 
+      ...rows.map(row =>
         row.map(val => {
           const str = String(val).replace(/"/g, '""');
           return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
@@ -326,7 +326,7 @@ router.post('/candidates/export-local', async (req, res) => {
     }
     const targetPath = path.join(exportsDir, 'Book1.csv');
     fs.writeFileSync(targetPath, csvContent, 'utf-8');
-    
+
     res.json({ message: `Data successfully exported to ${targetPath}` });
   } catch (error) {
     console.error('Error exporting to local path:', error);
@@ -339,14 +339,14 @@ router.get('/mrf/:jobOpeningId/download-csv', async (req, res) => {
   try {
     const opening = await JobOpening.findById(req.params.jobOpeningId);
     if (!opening) return res.status(404).json({ message: 'Job opening not found' });
-    
+
     const filePath = getCSVPath(opening._id.toString(), opening.designation);
-    
+
     // If the file doesn't exist, read from DB and write it first
     if (!fs.existsSync(filePath)) {
       await readCandidatesFromCSV(opening._id.toString(), opening.designation);
     }
-    
+
     res.download(filePath, `MRF-${opening.designation.replace(/[^a-zA-Z0-9]/g, '_')}-${opening._id}.csv`);
   } catch (error) {
     console.error('Error downloading CSV:', error);
