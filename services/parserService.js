@@ -16,31 +16,105 @@ const guessName = (fileName = '') =>
     .trim() || fileName;
 
 /**
+ * Universal LLM caller supporting native Gemini keys, OpenRouter keys, and OpenAI keys.
+ */
+async function callLLM(prompt, apiKey) {
+  if (!apiKey || apiKey.trim().length === 0) {
+    throw new Error('API key is empty');
+  }
+
+  const keyTrimmed = apiKey.trim();
+
+  // Case 1: OpenRouter Key (starts with sk-or-)
+  if (keyTrimmed.startsWith('sk-or-')) {
+    console.log('Detected OpenRouter API key. Calling OpenRouter...');
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${keyTrimmed}`,
+        'HTTP-Referer': 'http://localhost:5000',
+        'X-Title': 'HR Portal',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 1500,
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`OpenRouter API error: ${response.status} - ${errText}`);
+    }
+
+    const data = await response.json();
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      throw new Error('Unexpected response format from OpenRouter');
+    }
+    return data.choices[0].message.content;
+  }
+
+  // Case 2: OpenAI Key (starts with sk-proj- or standard sk-)
+  if (keyTrimmed.startsWith('sk-proj-') || (keyTrimmed.startsWith('sk-') && !keyTrimmed.startsWith('sk-or-'))) {
+    console.log('Detected OpenAI API key. Calling OpenAI...');
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${keyTrimmed}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`OpenAI API error: ${response.status} - ${errText}`);
+    }
+
+    const data = await response.json();
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      throw new Error('Unexpected response format from OpenAI');
+    }
+    return data.choices[0].message.content;
+  }
+
+  // Case 3: Native Google Gemini API Key
+  console.log('Detected native Google Gemini API key. Calling Google AI...');
+  const genAI = new GoogleGenerativeAI(keyTrimmed);
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const result = await model.generateContent(prompt);
+  return result.response.text();
+}
+
+/**
  * Fallback parser using Regex and standard keyword matchers when Gemini is unavailable.
  */
 function fallbackParse(text, fileName) {
-  // 1. Email extraction
   const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}/);
   const email = emailMatch ? emailMatch[0] : '';
 
-  // 2. Phone extraction
   const phoneMatch = text.match(/(\+?\d{1,4}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/) || 
                      text.match(/\+?\d{10,12}/);
   const phone = phoneMatch ? phoneMatch[0] : '';
 
-  // 3. Name guess
   let fullName = guessName(fileName);
-  // Try to find name at the very beginning of the resume (first 2-3 lines)
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length > 0 && lines[0].length > 3 && lines[0].length < 30 && !lines[0].toLowerCase().includes('resume')) {
     fullName = lines[0];
   }
 
-  // 4. Experience guess
   const expMatch = text.match(/(\d+\.?\d*)\s*(years?|yrs?)\b/i);
   const totalExp = expMatch ? `${expMatch[1]} years` : '';
 
-  // 5. Qualification guess
   const quals = ['b.tech', 'b.e.', 'm.tech', 'mba', 'mca', 'bca', 'b.sc', 'm.sc', 'graduate', 'post graduate', 'diploma', 'phd', 'doctorate'];
   let highestQual = '';
   for (const q of quals) {
@@ -50,7 +124,6 @@ function fallbackParse(text, fileName) {
     }
   }
 
-  // 6. Skills guess - check for common tech skills
   const commonSkills = [
     'react', 'node', 'express', 'mongodb', 'javascript', 'html', 'css', 'tailwind', 
     'typescript', 'angular', 'vue', 'python', 'django', 'flask', 'sql', 'postgresql', 
@@ -64,7 +137,6 @@ function fallbackParse(text, fileName) {
   }).map(s => s[0].toUpperCase() + s.slice(1));
   const skills = matchedSkills.join(', ');
 
-  // 7. Current title
   const titles = ['software engineer', 'developer', 'manager', 'analyst', 'consultant', 'designer', 'lead', 'architect'];
   let currentTitle = '';
   for (const t of titles) {
@@ -88,7 +160,7 @@ function fallbackParse(text, fileName) {
 
 /**
  * Main parser entry point. Reads file based on mime type, extracts raw text,
- * and calls Gemini AI or fallback regex parser to get details.
+ * and calls LLM or fallback regex parser to get details.
  */
 export async function parseResume(fileBuffer, fileName, mimeType) {
   let rawText = '';
@@ -113,10 +185,6 @@ export async function parseResume(fileBuffer, fileName, mimeType) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey && apiKey.trim().length > 0) {
       try {
-        console.log(`Using Gemini AI API for parsing resume: ${fileName}`);
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        
         const prompt = `You are an expert resume parsing system. Given the text extracted from a candidate's resume, extract their key profile details.
 Return ONLY a valid JSON object matching this structure:
 {
@@ -131,14 +199,12 @@ Return ONLY a valid JSON object matching this structure:
 Do not include any Markdown blocks, backticks, or prefix. Return raw JSON string ONLY.
 
 Resume Text:
-${rawText.slice(0, 10000)} // Truncated to stay safe within model token limits
+${rawText.slice(0, 10000)}
 `;
 
-        const result = await model.generateContent(prompt);
-        const responseText = result.response.text().trim();
+        const responseText = await callLLM(prompt, apiKey);
         
-        // Clean markdown code blocks if the model accidentally returns them
-        let jsonStr = responseText;
+        let jsonStr = responseText.trim();
         if (jsonStr.startsWith('```')) {
           jsonStr = jsonStr.replace(/^```(json)?\n/, '').replace(/\n```$/, '');
         }
@@ -153,12 +219,12 @@ ${rawText.slice(0, 10000)} // Truncated to stay safe within model token limits
             totalExp: details.totalExp || '',
             highestQual: details.highestQual || '',
             skills: details.skills || '',
-            notes: 'Successfully parsed using Gemini AI.'
+            notes: 'Successfully parsed using AI.'
           },
           status: 'parsed'
         };
       } catch (geminiError) {
-        console.warn('Gemini AI parsing failed, resorting to fallback parser:', geminiError.message);
+        console.warn('AI parsing failed, resorting to fallback parser:', geminiError.message);
         return {
           details: fallbackParse(rawText, fileName),
           status: 'parsed'
@@ -272,10 +338,6 @@ export async function parseMRF(fileBuffer, fileName, mimeType) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey && apiKey.trim().length > 0) {
       try {
-        console.log(`Using Gemini AI API for parsing MRF: ${fileName}`);
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        
         const prompt = `You are an expert recruitment system. Given the text extracted from a Manpower Requirement Form (MRF) or job description document, extract the job requirements.
 Return ONLY a valid JSON object matching this structure:
 {
@@ -296,10 +358,9 @@ Document Text:
 ${rawText.slice(0, 10000)}
 `;
 
-        const result = await model.generateContent(prompt);
-        const responseText = result.response.text().trim();
+        const responseText = await callLLM(prompt, apiKey);
         
-        let jsonStr = responseText;
+        let jsonStr = responseText.trim();
         if (jsonStr.startsWith('```')) {
           jsonStr = jsonStr.replace(/^```(json)?\n/, '').replace(/\n```$/, '');
         }
@@ -321,7 +382,7 @@ ${rawText.slice(0, 10000)}
           status: 'parsed'
         };
       } catch (geminiError) {
-        console.warn('Gemini AI MRF parsing failed, resorting to fallback parser:', geminiError.message);
+        console.warn('AI MRF parsing failed, resorting to fallback parser:', geminiError.message);
         return {
           details: fallbackParseMRF(rawText, fileName),
           status: 'parsed'
