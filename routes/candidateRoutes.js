@@ -378,4 +378,17 @@ router.get('/candidates/download-all', async (req, res) => {
   }
 });
 
+// ── GET /candidates/status/:email — get status for all applications by email ──
+router.get('/candidates/status/:email', async (req, res) => {
+  try {
+    const candidates = await Candidate.find({ 'details.email': req.params.email })
+      .populate('jobOpeningId')
+      .sort({ createdAt: -1 });
+    res.json(candidates);
+  } catch (error) {
+    console.error('Error retrieving candidates by email:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 export default router;
