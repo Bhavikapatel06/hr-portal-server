@@ -2,61 +2,62 @@ import mongoose from 'mongoose';
 
 const candidateSchema = new mongoose.Schema({
   jobOpeningId: { type: mongoose.Schema.Types.ObjectId, ref: 'JobOpening', required: true },
-  fileName: { type: String, required: true },
-  filePath: { type: String, required: true },
+  appliedVia: { type: String, enum: ['resume_upload', 'apply_form'], default: 'apply_form' },
+  fileName: { type: String, default: '' },
+  filePath: { type: String, default: '' },
   fileSize: Number,
-  parseStatus: { type: String, enum: ['pending', 'parsed', 'failed'], default: 'pending' },
+  parseStatus: { type: String, enum: ['pending', 'parsed', 'failed'], default: 'parsed' },
   details: {
-    fullName: { type: String, default: '' },
-    email: { type: String, default: '' },
-    phone: { type: String, default: '' },
-    alternatePhone: { type: String, default: '' },
-    currentTitle: { type: String, default: '' },
-    totalExp: { type: String, default: '' },
-    highestQual: { type: String, default: '' },
-    skills: { type: String, default: '' },
+    fullName:        { type: String, default: '' },
+    email:           { type: String, default: '' },
+    phone:           { type: String, default: '' },
+    alternatePhone:  { type: String, default: '' },
+    currentTitle:    { type: String, default: '' },
+    totalExp:        { type: String, default: '' },
+    highestQual:     { type: String, default: '' },
+    skills:          { type: String, default: '' },
     currentLocation: { type: String, default: '' },
-    currentCompany: { type: String, default: '' },
-    currentCtc: { type: String, default: '' },
-    expectedCtc: { type: String, default: '' },
-    noticePeriod: { type: String, default: '' },
+    currentCompany:  { type: String, default: '' },
+    currentCtc:      { type: String, default: '' },
+    expectedCtc:     { type: String, default: '' },
+    noticePeriod:    { type: String, default: '' },
     reasonForChange: { type: String, default: '' },
-    notes: { type: String, default: '' }
+    notes:           { type: String, default: '' },
   },
-  matchScore: { type: Number, default: null },
-  matchLevel: { type: String, enum: ['Strong', 'Good', 'Partial', 'Low', null], default: null },
+  matchScore:  { type: Number, default: null },
+  matchLevel:  { type: String, enum: ['Strong', 'Good', 'Partial', 'Low', null], default: null },
   matchBreakdown: {
-    skills: { type: Number, default: 0 },
-    experience: { type: Number, default: 0 },
+    skills:        { type: Number, default: 0 },
+    experience:    { type: Number, default: 0 },
     qualification: { type: Number, default: 0 },
-    jobTitle: { type: Number, default: 0 }
+    jobTitle:      { type: Number, default: 0 },
   },
-  overallStatus: { 
-    type: String, 
-    enum: ['new', 'shortlisted', 'scheduled', 'selected', 'rejected', 'on_hold'], 
-    default: 'new' 
+  overallStatus: {
+    type: String,
+    enum: ['new', 'shortlisted', 'scheduled', 'selected', 'rejected', 'on_hold'],
+    default: 'new',
   },
   interview: {
     scheduled: { type: Boolean, default: false },
-    date: { type: String, default: '' },
-    time: { type: String, default: '' },
-    mode: { type: String, enum: ['online', 'offline'], default: 'online' },
-    type: { type: String, enum: ['Initial', 'Technical', 'HR', 'Final'], default: 'Technical' },
-    link: { type: String, default: '' },
-    venue: { type: String, default: '' },
-    notes: { type: String, default: '' }
+    date:      { type: String,  default: '' },
+    time:      { type: String,  default: '' },
+    mode:      { type: String,  enum: ['online', 'offline'], default: 'online' },
+    type:      { type: String,  enum: ['Initial', 'Technical', 'HR', 'Final'], default: 'Technical' },
+    link:      { type: String,  default: '' },
+    venue:     { type: String,  default: '' },
+    notes:     { type: String,  default: '' },
   },
   feedback: {
-    given: { type: Boolean, default: false },
-    decision: { type: String, enum: ['shortlisted', 'selected', 'rejected', 'on_hold', ''], default: '' },
-    rating: { type: Number, default: 0 },
-    notes: { type: String, default: '' },
-    decidedAt: { type: Date, default: null }
+    given:     { type: Boolean, default: false },
+    decision:  { type: String, enum: ['shortlisted', 'selected', 'rejected', 'on_hold', ''], default: '' },
+    rating:    { type: Number, default: 0 },
+    notes:     { type: String, default: '' },
+    decidedAt: { type: Date,   default: null },
   },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
-candidateSchema.set('toJSON', { virtuals: true });
+candidateSchema.set('toJSON',   { virtuals: true });
 candidateSchema.set('toObject', { virtuals: true });
 
 const Candidate = mongoose.model('Candidate', candidateSchema);

@@ -1,44 +1,33 @@
 import express from 'express';
 import multer from 'multer';
-import path from 'path';
 import fs from 'fs';
 import JobOpening from '../models/JobOpening.js';
 import Candidate from '../models/Candidate.js';
 import { parseResume } from '../services/parserService.js';
 import { scoreCandidate } from '../services/matchService.js';
-import { readCandidatesFromCSV, writeCandidatesToCSV, getCSVPath } from '../services/csvService.js';
-
+import { buildCandidateCSV } from '../services/csvService.js';
 
 const router = express.Router();
 
-// Configure multer for file uploads
+// ── Multer for resume uploads ──────────────────────────────────────────────
 const uploadDir = 'uploads/';
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique name keeping original extension
-    cb(null, `${Date.now()}-${file.originalname}`);
-  }
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename:    (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
-
 const upload = multer({ storage });
 
-// Upload batch of resumes for a specific MRF
+// ── POST /mrf/:jobOpeningId/resumes — batch resume upload (HR side) ────────
 router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, res) => {
   const { jobOpeningId } = req.params;
   try {
     const opening = await JobOpening.findById(jobOpeningId);
     if (!opening) {
-      // Cleanup uploaded files on error
-      if (req.files) {
-        req.files.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
-      }
+      if (req.files) req.files.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
       return res.status(404).json({ message: 'Job opening not found' });
     }
 
@@ -49,51 +38,45 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
           const fileBuffer = fs.readFileSync(file.path);
           const parsed = await parseResume(fileBuffer, file.originalname, file.mimetype);
 
-          // Score against Job Opening requirements
           const requirements = {
-            designation: opening.designation,
-            department: opening.department,
-            experience: opening.experience,
+            designation:          opening.designation,
+            department:           opening.department,
+            experience:           opening.experience,
             minimumQualification: opening.minimumQualification,
-            otherKeySkills: opening.otherKeySkills
+            otherKeySkills:       opening.otherKeySkills,
           };
-          const combinedDetails = {
-            ...parsed.details,
-            notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}`
-          };
-          const match = scoreCandidate(combinedDetails, requirements);
+          const combined = { ...parsed.details, notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}` };
+          const match = scoreCandidate(combined, requirements);
 
           const candidate = new Candidate({
             jobOpeningId,
-            fileName: file.originalname,
-            filePath: file.path,
-            fileSize: file.size,
-            parseStatus: parsed.status,
-            details: parsed.details,
-            matchScore: match.score,
-            matchLevel: match.matchLevel,
+            appliedVia:   'resume_upload',
+            fileName:     file.originalname,
+            filePath:     file.path,
+            fileSize:     file.size,
+            parseStatus:  parsed.status,
+            details:      parsed.details,
+            matchScore:   match.score,
+            matchLevel:   match.matchLevel,
             matchBreakdown: match.breakdown,
-            overallStatus: 'new'
+            overallStatus: 'new',
           });
 
           await candidate.save();
           candidates.push(candidate);
         } catch (fileError) {
           console.error(`Error parsing file ${file.originalname}:`, fileError);
-          // Save with failed status so user knows it failed but still can view it
           const candidate = new Candidate({
             jobOpeningId,
-            fileName: file.originalname,
-            filePath: file.path,
-            fileSize: file.size,
-            parseStatus: 'failed',
-            details: {
-              fullName: file.originalname,
-              notes: `Parsing failed: ${fileError.message}`
-            },
-            matchScore: 0,
-            matchLevel: 'Low',
-            overallStatus: 'new'
+            appliedVia:   'resume_upload',
+            fileName:     file.originalname,
+            filePath:     file.path,
+            fileSize:     file.size,
+            parseStatus:  'failed',
+            details:      { fullName: file.originalname, notes: `Parsing failed: ${fileError.message}` },
+            matchScore:   0,
+            matchLevel:   'Low',
+            overallStatus: 'new',
           });
           await candidate.save();
           candidates.push(candidate);
@@ -101,9 +84,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
       }
     }
 
-    // Return all candidates for this opening sorted by matchScore descending
     const allCandidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
-    await writeCandidatesToCSV(jobOpeningId, opening.designation, allCandidates);
     res.status(201).json(allCandidates);
   } catch (error) {
     console.error('Error in batch resume upload:', error);
@@ -111,12 +92,103 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
   }
 });
 
-// Get all candidates for a specific MRF
+// ── POST /mrf/:jobOpeningId/parse-resume — parse resume, return fields, do NOT save ──
+router.post('/mrf/:jobOpeningId/parse-resume', upload.single('resume'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No resume file uploaded' });
+
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const parsed = await parseResume(fileBuffer, req.file.originalname, req.file.mimetype);
+
+    res.json({
+      details: parsed.details,
+      fileName: req.file.originalname,
+      filePath: req.file.path,
+      fileSize: req.file.size,
+    });
+  } catch (error) {
+    console.error('Error parsing resume:', error);
+    if (req.file && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+    }
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── POST /mrf/:jobOpeningId/apply — candidate apply via form ───────────────
+router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
+  const { jobOpeningId } = req.params;
+  try {
+    const opening = await JobOpening.findById(jobOpeningId);
+    if (!opening) return res.status(404).json({ message: 'Job opening not found' });
+
+    const {
+      fullName, email, phone, alternatePhone, currentTitle,
+      totalExp, highestQual, skills, currentLocation,
+      currentCompany, currentCtc, expectedCtc, noticePeriod,
+      reasonForChange, notes,
+      fileName, filePath, fileSize,
+    } = req.body;
+
+    if (!fullName?.trim()) return res.status(400).json({ message: 'Candidate name is required' });
+
+    const requirements = {
+      designation:          opening.designation,
+      department:           opening.department,
+      experience:           opening.experience,
+      minimumQualification: opening.minimumQualification,
+      otherKeySkills:       opening.otherKeySkills,
+    };
+
+    const details = {
+      fullName: fullName.trim(),
+      email:           email           || '',
+      phone:           phone           || '',
+      alternatePhone:  alternatePhone  || '',
+      currentTitle:    currentTitle    || opening.designation,
+      totalExp:        totalExp        || '',
+      highestQual:     highestQual     || '',
+      skills:          skills          || '',
+      currentLocation: currentLocation || '',
+      currentCompany:  currentCompany  || '',
+      currentCtc:      currentCtc      || '',
+      expectedCtc:     expectedCtc     || '',
+      noticePeriod:    noticePeriod    || '',
+      reasonForChange: reasonForChange || '',
+      notes:           notes           || '',
+    };
+
+    const combined = { ...details, notes: `${details.skills || ''} ${details.notes || ''}` };
+    const match = scoreCandidate(combined, requirements);
+
+    const candidate = new Candidate({
+      jobOpeningId,
+      appliedVia:   filePath ? 'resume_upload' : 'apply_form',
+      fileName:     fileName || '',
+      filePath:     filePath || '',
+      fileSize:     fileSize || 0,
+      parseStatus:  'parsed',
+      details,
+      matchScore:   match.score,
+      matchLevel:   match.matchLevel,
+      matchBreakdown: match.breakdown,
+      overallStatus:  'new',
+    });
+
+    await candidate.save();
+    res.status(201).json(candidate);
+  } catch (error) {
+    console.error('Error saving candidate application:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── GET /mrf/:jobOpeningId/candidates — list candidates for an opening ─────
 router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
   try {
     const opening = await JobOpening.findById(req.params.jobOpeningId);
     if (!opening) return res.status(404).json({ message: 'Job opening not found' });
-    const candidates = await readCandidatesFromCSV(req.params.jobOpeningId, opening.designation);
+    const candidates = await Candidate.find({ jobOpeningId: req.params.jobOpeningId }).sort({ matchScore: -1 });
     res.json(candidates);
   } catch (error) {
     console.error('Error retrieving candidates:', error);
@@ -124,43 +196,51 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
   }
 });
 
-// Update candidate parsed details manually & re-score
+// ── GET /mrf/:jobOpeningId/download-csv — stream CSV download ─────────────
+router.get('/mrf/:jobOpeningId/download-csv', async (req, res) => {
+  try {
+    const opening = await JobOpening.findById(req.params.jobOpeningId);
+    if (!opening) return res.status(404).json({ message: 'Job opening not found' });
+
+    const candidates = await Candidate.find({ jobOpeningId: req.params.jobOpeningId }).sort({ createdAt: 1 });
+    const csv = buildCandidateCSV(opening, candidates);
+
+    const safeName = opening.designation.replace(/[^a-zA-Z0-9]/g, '_');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="MRF-${safeName}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Error generating CSV download:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── PUT /candidates/:id/details — update candidate details & re-score ──────
 router.put('/candidates/:id/details', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
 
-    // Update details properties
     candidate.details = { ...candidate.details.toObject(), ...req.body };
-    candidate.parseStatus = 'parsed'; // Mark as parsed since user entered info
+    candidate.parseStatus = 'parsed';
 
-    // Re-score candidate against original opening
     const opening = await JobOpening.findById(candidate.jobOpeningId);
     if (opening) {
       const requirements = {
-        designation: opening.designation,
-        department: opening.department,
-        experience: opening.experience,
+        designation:          opening.designation,
+        department:           opening.department,
+        experience:           opening.experience,
         minimumQualification: opening.minimumQualification,
-        otherKeySkills: opening.otherKeySkills
+        otherKeySkills:       opening.otherKeySkills,
       };
-      const combinedDetails = {
-        ...candidate.details,
-        notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}`
-      };
-      const match = scoreCandidate(combinedDetails, requirements);
-      candidate.matchScore = match.score;
-      candidate.matchLevel = match.matchLevel;
+      const combined = { ...candidate.details, notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}` };
+      const match = scoreCandidate(combined, requirements);
+      candidate.matchScore    = match.score;
+      candidate.matchLevel    = match.matchLevel;
       candidate.matchBreakdown = match.breakdown;
     }
 
     await candidate.save();
-
-    if (opening) {
-      const candidates = await Candidate.find({ jobOpeningId: candidate.jobOpeningId }).sort({ matchScore: -1 });
-      await writeCandidatesToCSV(candidate.jobOpeningId, opening.designation, candidates);
-    }
-
     res.json(candidate);
   } catch (error) {
     console.error('Error updating candidate details:', error);
@@ -168,25 +248,16 @@ router.put('/candidates/:id/details', async (req, res) => {
   }
 });
 
-// Schedule interview
+// ── PUT /candidates/:id/interview — schedule interview ─────────────────────
 router.put('/candidates/:id/interview', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
 
     candidate.interview = { ...candidate.interview.toObject(), ...req.body };
-    if (candidate.interview.scheduled) {
-      candidate.overallStatus = 'scheduled';
-    }
+    if (candidate.interview.scheduled) candidate.overallStatus = 'scheduled';
 
     await candidate.save();
-
-    const opening = await JobOpening.findById(candidate.jobOpeningId);
-    if (opening) {
-      const candidates = await Candidate.find({ jobOpeningId: candidate.jobOpeningId }).sort({ matchScore: -1 });
-      await writeCandidatesToCSV(candidate.jobOpeningId, opening.designation, candidates);
-    }
-
     res.json(candidate);
   } catch (error) {
     console.error('Error scheduling interview:', error);
@@ -194,7 +265,7 @@ router.put('/candidates/:id/interview', async (req, res) => {
   }
 });
 
-// Record feedback & make final decision
+// ── PUT /candidates/:id/feedback — record decision ─────────────────────────
 router.put('/candidates/:id/feedback', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id);
@@ -209,13 +280,6 @@ router.put('/candidates/:id/feedback', async (req, res) => {
     }
 
     await candidate.save();
-
-    const opening = await JobOpening.findById(candidate.jobOpeningId);
-    if (opening) {
-      const candidates = await Candidate.find({ jobOpeningId: candidate.jobOpeningId }).sort({ matchScore: -1 });
-      await writeCandidatesToCSV(candidate.jobOpeningId, opening.designation, candidates);
-    }
-
     res.json(candidate);
   } catch (error) {
     console.error('Error updating feedback:', error);
@@ -223,30 +287,17 @@ router.put('/candidates/:id/feedback', async (req, res) => {
   }
 });
 
-// Delete candidate & resume file
+// ── DELETE /candidates/:id — delete candidate ──────────────────────────────
 router.delete('/candidates/:id', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
 
-    // Remove resume file from disk
     if (candidate.filePath && fs.existsSync(candidate.filePath)) {
-      try {
-        fs.unlinkSync(candidate.filePath);
-      } catch (fileErr) {
-        console.warn(`Failed to delete physical file at ${candidate.filePath}:`, fileErr.message);
-      }
+      try { fs.unlinkSync(candidate.filePath); } catch (e) { /* ignore */ }
     }
 
-    const jobOpeningId = candidate.jobOpeningId;
     await Candidate.findByIdAndDelete(req.params.id);
-
-    const opening = await JobOpening.findById(jobOpeningId);
-    if (opening) {
-      const candidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
-      await writeCandidatesToCSV(jobOpeningId, opening.designation, candidates);
-    }
-
     res.json({ message: 'Candidate deleted successfully' });
   } catch (error) {
     console.error('Error deleting candidate:', error);
@@ -254,7 +305,7 @@ router.delete('/candidates/:id', async (req, res) => {
   }
 });
 
-// Get all candidates across all openings (for general metrics/dashboard)
+// ── GET /candidates — all candidates globally (dashboard stats) ────────────
 router.get('/candidates', async (req, res) => {
   try {
     const candidates = await Candidate.find().populate('jobOpeningId').sort({ createdAt: -1 });
@@ -265,99 +316,77 @@ router.get('/candidates', async (req, res) => {
   }
 });
 
-// Export candidates to local CSV file directly on user's hard drive
-router.post('/candidates/export-local', async (req, res) => {
-  const { jobOpeningId } = req.body;
+// ── GET /candidates/download-all — global FIFO CSV across all openings ─────
+router.get('/candidates/download-all', async (req, res) => {
   try {
-    let candidates;
-    let opening = null;
-    
-    if (jobOpeningId) {
-      candidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
-      opening = await JobOpening.findById(jobOpeningId);
-    } else {
-      candidates = await Candidate.find().populate('jobOpeningId').sort({ createdAt: -1 });
-    }
-    
-    // Headers matching user's photo report format
-    const headers = [
-      'Sr No', 'Candidate Name', 'Contact No', 'Alternet number', 'Mail ID',
-      'Current Opening', 'Department', 'Job Location', 'Qualification', 'Total Experience',
-      'Current Location', 'Current Company', 'Current CTC', 'Expected CTC', 'Notice Period',
-      'Reason For Change', 'Candidate Status', 'Remarks'
-    ];
+    // FIFO: oldest application first
+    const candidates = await Candidate.find()
+      .populate('jobOpeningId')
+      .sort({ createdAt: 1 });
 
-    const statusMap = {
+    const STATUS_MAP = {
       new: 'New', shortlisted: 'Shortlisted', scheduled: 'Scheduled',
-      selected: 'Selected', rejected: 'Rejected', on_hold: 'On Hold'
+      selected: 'Selected', rejected: 'Rejected', on_hold: 'On Hold',
     };
 
-    const rows = candidates.map((c, index) => {
-      const d = c.details || {};
-      const jobOpening = c.jobOpeningId;
+    const HEADERS = [
+      'Sr. No', 'Candidate Name', 'Contact No', 'Alternate Number', 'Mail ID',
+      'Current Opening', 'Department', 'Job Location', 'Qualification', 'Total Experience',
+      'Current Location', 'Current Company', 'Current CTC', 'Expected CTC', 'Notice Period',
+      'Reason For Change', 'Candidate Status', 'Remarks',
+    ];
+
+    const escapeCell = (val) => {
+      const str = String(val === null || val === undefined ? '' : val).replace(/"/g, '""');
+      return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
+    };
+
+    const rows = candidates.map((c, i) => {
+      const d  = c.details || {};
+      const jo = c.jobOpeningId || {};
       return [
-        index + 1,
-        d.fullName || '',
-        d.phone || '',
-        d.alternatePhone || '',
-        d.email || '',
-        (jobOpening && typeof jobOpening === 'object' ? jobOpening.designation : null) || opening?.designation || d.currentTitle || 'N/A',
-        (jobOpening && typeof jobOpening === 'object' ? jobOpening.department : null) || opening?.department || 'N/A',
-        (jobOpening && typeof jobOpening === 'object' ? jobOpening.location : null) || opening?.location || d.currentLocation || 'N/A',
-        d.highestQual || '',
-        d.totalExp || '',
+        i + 1,
+        d.fullName        || '',
+        d.phone           || '',
+        d.alternatePhone  || '',
+        d.email           || '',
+        (typeof jo === 'object' ? jo.designation : '') || '',
+        (typeof jo === 'object' ? jo.department  : '') || '',
+        (typeof jo === 'object' ? jo.location    : '') || '',
+        d.highestQual     || '',
+        d.totalExp        || '',
         d.currentLocation || '',
-        d.currentCompany || '',
-        d.currentCtc || '',
-        d.expectedCtc || '',
-        d.noticePeriod || '',
+        d.currentCompany  || '',
+        d.currentCtc      || '',
+        d.expectedCtc     || '',
+        d.noticePeriod    || '',
         d.reasonForChange || '',
-        statusMap[c.overallStatus] || c.overallStatus || 'New',
-        d.notes || ''
-      ];
+        STATUS_MAP[c.overallStatus] || c.overallStatus || 'New',
+        d.notes           || '',
+      ].map(escapeCell).join(',');
     });
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row =>
-        row.map(val => {
-          const str = String(val).replace(/"/g, '""');
-          return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
-        }).join(',')
-      )
-    ].join('\n');
+    const csv = [HEADERS.map(escapeCell).join(','), ...rows].join('\n');
+    const now = new Date().toISOString().slice(0, 10);
 
-    // Write directly to local path!
-    const exportsDir = path.join(process.cwd(), 'exports');
-    if (!fs.existsSync(exportsDir)) {
-      fs.mkdirSync(exportsDir, { recursive: true });
-    }
-    const targetPath = path.join(exportsDir, 'Book1.csv');
-    fs.writeFileSync(targetPath, csvContent, 'utf-8');
-
-    res.json({ message: `Data successfully exported to ${targetPath}` });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="All-Candidates-${now}.csv"`);
+    res.send(csv);
   } catch (error) {
-    console.error('Error exporting to local path:', error);
+    console.error('Error generating all-candidates CSV:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Download the local CSV file directly for a specific MRF
-router.get('/mrf/:jobOpeningId/download-csv', async (req, res) => {
+// ── GET /candidates/status/:email — get status for all applications by email ──
+router.get('/candidates/status/:email', async (req, res) => {
   try {
-    const opening = await JobOpening.findById(req.params.jobOpeningId);
-    if (!opening) return res.status(404).json({ message: 'Job opening not found' });
-
-    const filePath = getCSVPath(opening._id.toString(), opening.designation);
-
-    // If the file doesn't exist, read from DB and write it first
-    if (!fs.existsSync(filePath)) {
-      await readCandidatesFromCSV(opening._id.toString(), opening.designation);
-    }
-
-    res.download(filePath, `MRF-${opening.designation.replace(/[^a-zA-Z0-9]/g, '_')}-${opening._id}.csv`);
+    const candidates = await Candidate.find({ 'details.email': req.params.email })
+      .populate('jobOpeningId')
+      .sort({ createdAt: -1 });
+    res.json(candidates);
   } catch (error) {
-    console.error('Error downloading CSV:', error);
+    console.error('Error retrieving candidates by email:', error);
     res.status(500).json({ message: error.message });
   }
 });
