@@ -5,9 +5,27 @@ import connectDB from './config/db.js';
 import mrfRoutes from './routes/mrfRoutes.js';
 import candidateRoutes from './routes/candidateRoutes.js';
 import JobOpening from './models/JobOpening.js';
+import fs from 'fs';
 
 // Load environment variables
 dotenv.config();
+
+// ── Handle unhandled promise rejections (API failures etc.) ────────────────
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled Promise Rejection:', reason?.message || reason);
+  // Keep server alive — these are usually external API errors (OpenRouter, etc.)
+});
+
+// ── Handle uncaught exceptions ──────────────────────────────────────────────
+process.on('uncaughtException', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    // Port is already in use — exit so nodemon can properly restart
+    console.error(`[Server] Port ${err.port || 5000} is already in use. Exiting so nodemon can restart...`);
+    process.exit(1);
+  }
+  console.error('[Server] Uncaught Exception:', err.message);
+  // Keep server alive for other non-fatal errors
+});
 
 // Connect to MongoDB
 connectDB().then(() => seedDatabase());
