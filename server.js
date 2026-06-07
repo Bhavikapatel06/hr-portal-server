@@ -4,61 +4,77 @@ import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import mrfRoutes from './routes/mrfRoutes.js';
 import candidateRoutes from './routes/candidateRoutes.js';
+import authRoutes from './routes/authRoutes.js';
 import JobOpening from './models/JobOpening.js';
-import fs from 'fs';
+import User from './models/User.js';
+import bcrypt from 'bcryptjs';
 
-// Load environment variables
 dotenv.config();
 
-// ── Handle unhandled promise rejections (API failures etc.) ────────────────
 process.on('unhandledRejection', (reason) => {
   console.error('[Server] Unhandled Promise Rejection:', reason?.message || reason);
-  // Keep server alive — these are usually external API errors (OpenRouter, etc.)
 });
 
-// ── Handle uncaught exceptions ──────────────────────────────────────────────
 process.on('uncaughtException', (err) => {
   if (err.code === 'EADDRINUSE') {
-    // Port is already in use — exit so nodemon can properly restart
-    console.error(`[Server] Port ${err.port || 5000} is already in use. Exiting so nodemon can restart...`);
+    console.error(`[Server] Port ${err.port || 5000} is already in use. Exiting...`);
     process.exit(1);
   }
   console.error('[Server] Uncaught Exception:', err.message);
-  // Keep server alive for other non-fatal errors
 });
 
-// Connect to MongoDB
 connectDB().then(() => seedDatabase());
 
 const app = express();
 
-// Middlewares
 app.use(cors({
-  origin: '*', // Allow all origins for simplicity in local development
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Serve static uploaded files (in case frontend needs to download/view the resume)
 app.use('/uploads', express.static('uploads'));
 
 // Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/mrf', mrfRoutes);
 app.use('/api', candidateRoutes);
 
-// Root endpoint status
 app.get('/', (req, res) => {
   res.json({ message: 'HR Portal API Server is running smoothly' });
 });
 
-// Seed default data if database is empty
+// Seed default data
 const seedDatabase = async () => {
   try {
+    // Seed demo users
+    const userCount = await User.countDocuments();
+    if (userCount === 0) {
+      console.log('Seeding demo users...');
+      await User.create([
+        {
+          name: 'HR Admin',
+          email: 'admin@hrportal.com',
+          password: 'admin123',
+          role: 'admin',
+        },
+        {
+          name: 'Demo Candidate',
+          email: 'candidate@hrportal.com',
+          password: 'candidate123',
+          role: 'candidate',
+        },
+      ]);
+      console.log('Demo users created!');
+      console.log('  Admin:     admin@hrportal.com / admin123');
+      console.log('  Candidate: candidate@hrportal.com / candidate123');
+    }
+
+    // Seed job openings
     const count = await JobOpening.countDocuments();
     if (count === 0) {
-      console.log('Database is empty. Seeding default Job Openings...');
+      console.log('Seeding default Job Openings...');
       const SEEDS = [
         {
           designation: 'Senior React Developer',
@@ -135,14 +151,13 @@ const seedDatabase = async () => {
       console.log('Database seeded successfully!');
     }
   } catch (error) {
-    console.error('Seeding database failed:', error.message);
+    console.error('Seeding failed:', error.message);
   }
 };
 
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ error: err.message || 'Something went wrong on the server!' });
+  res.status(500).json({ error: err.message || 'Something went wrong!' });
 });
 
 const PORT = process.env.PORT || 5000;
