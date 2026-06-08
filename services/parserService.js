@@ -280,23 +280,40 @@ function fallbackParseMRF(text, fileName) {
   if (expMatch) experience = expMatch[1].trim();
 
   let minimumQualification = '';
-  const qualOptions = ['10th / SSC', '12th / HSC', 'Diploma', 'Graduate (Any)', 'B.E. / B.Tech', 'MBA / PGDM', 'Post Graduate', 'Doctorate / PhD'];
-  for (const opt of qualOptions) {
-    if (text.toLowerCase().includes(opt.toLowerCase())) {
-      minimumQualification = opt;
-      break;
-    }
+  const qualRegex = /(?:minimum qualification|qualifications?|education)\s*:?\s*([\s\S]*?)(?:specializations?|age in range|preferred industries|skills|experience|benefits|$)/i;
+  const qualMatch = text.match(qualRegex);
+  if (qualMatch) {
+    let raw = qualMatch[1].trim();
+    if (raw !== '—' && raw !== '-') minimumQualification = raw;
   }
 
   let otherKeySkills = '';
-  const skillsRegex = /(?:skills|key skills|skills required)\s*:\s*([^\n]+)/i;
+  const skillsRegex = /(?:other key skills|key skills|skills)(?:\s*&\s*explain.*?)?:?\s*([\s\S]*?)(?:it requirements|laptop|desktop|benefits|salary|$)/i;
   const skillsMatch = text.match(skillsRegex);
-  if (skillsMatch) otherKeySkills = skillsMatch[1].trim();
+  if (skillsMatch) {
+    let raw = skillsMatch[1].trim();
+    if (raw !== '—' && raw !== '-') otherKeySkills = raw;
+  }
 
   let noOfPositions = '';
   const posRegex = /(?:no\.? of positions|positions|vacancies|vacancy)\s*:\s*(\d+)/i;
-  const posMatch = text.match(posRegex);
-  if (posMatch) noOfPositions = posMatch[1].trim();
+  let purposeOfJob = '';
+  // Match "Purpose of the Job" or "Summary" up to the next heading
+  const summaryRegex = /(?:summary|purpose(?: of (?:the )?job)?|objective)\s*:?\s*([\s\S]*?)(?:roles and responsibilities|responsibilities|duties|requirements|qualification|4\.\s*Qualification|$)/i;
+  const summaryMatch = text.match(summaryRegex);
+  if (summaryMatch) {
+    let raw = summaryMatch[1].trim();
+    if (raw !== '—' && raw !== '-') purposeOfJob = raw;
+  }
+
+  let roles = '';
+  // Match "Roles and Responsibilities" or "Responsibilities" up to the next heading
+  const rolesRegex = /(?:roles and responsibilities.*?|responsibilities|duties|roles)\s*:?\s*([\s\S]*?)(?:qualification|4\.\s*Qualification|requirements|skills|experience|$)/i;
+  const rolesMatch = text.match(rolesRegex);
+  if (rolesMatch) {
+    let raw = rolesMatch[1].trim();
+    if (raw !== '—' && raw !== '-') roles = raw;
+  }
 
   return {
     designation: designation || guessName(fileName),
@@ -307,7 +324,8 @@ function fallbackParseMRF(text, fileName) {
     otherKeySkills: otherKeySkills || '',
     noOfPositions: noOfPositions || '1',
     urgency: 'Medium',
-    purposeOfJob: '',
+    purposeOfJob: purposeOfJob,
+    rolesAndResponsibilities: roles,
     preferredIndustries: ''
   };
 }
@@ -350,6 +368,7 @@ Return ONLY a valid JSON object matching this structure:
   "noOfPositions": "Number of positions available (as integer or string, e.g. 2 or '2')",
   "urgency": "Level of urgency (High, Medium, Low)",
   "purposeOfJob": "Brief purpose / summary of the role",
+  "rolesAndResponsibilities": "A detailed list or paragraph of the roles and responsibilities",
   "preferredIndustries": "Preferred industries (if mentioned)"
 }
 Do not include any Markdown blocks, backticks, or prefix. Return raw JSON string ONLY.
@@ -377,6 +396,7 @@ ${rawText.slice(0, 10000)}
             noOfPositions: details.noOfPositions || '1',
             urgency: details.urgency || 'Medium',
             purposeOfJob: details.purposeOfJob || '',
+            rolesAndResponsibilities: details.rolesAndResponsibilities || '',
             preferredIndustries: details.preferredIndustries || ''
           },
           status: 'parsed'
@@ -408,6 +428,7 @@ ${rawText.slice(0, 10000)}
         noOfPositions: '1',
         urgency: 'Medium',
         purposeOfJob: '',
+        rolesAndResponsibilities: '',
         preferredIndustries: ''
       },
       status: 'failed'
