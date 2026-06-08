@@ -16,7 +16,7 @@ const QUAL_LEVELS = [
 function tokenize(str = '') {
   return str
     .toLowerCase()
-    .replace(/[^a-z0-9\s.+#]/g, ' ')
+    .replace(/[^a-z0-9\s.+#-]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length >= 2);
 }
@@ -29,9 +29,9 @@ function scoreSkills(candidateDetails, requirements) {
   if (!reqSkills.length) return 60; // no requirements = neutral
 
   const candidateText = [
+    candidateDetails.skills,
     candidateDetails.currentTitle,
     candidateDetails.notes,
-    candidateDetails.skills,
     candidateDetails.fullName,
   ].join(' ');
   const candidateSkills = tokenize(candidateText);
@@ -39,7 +39,7 @@ function scoreSkills(candidateDetails, requirements) {
   if (!candidateSkills.length) return 0;
 
   const matches = reqSkills.filter(rk =>
-    candidateSkills.some(ck => ck.includes(rk) || rk.includes(ck))
+    candidateSkills.some(ck => ck === rk || ck.includes(rk))
   );
   return Math.round((matches.length / reqSkills.length) * 100);
 }
@@ -124,7 +124,7 @@ function scoreJobTitle(candidateDetails, requirements) {
   if (!candTitle.length) return 10;
 
   const matches = reqTitle.filter(rt =>
-    candTitle.some(ct => ct.includes(rt) || rt.includes(ct))
+    candTitle.some(ct => ct === rt || ct.includes(rt))
   );
   return Math.round((matches.length / reqTitle.length) * 100);
 }
@@ -152,12 +152,17 @@ export function scoreCandidate(candidateDetails, requirements) {
   const qualification = scoreQualification(candidateDetails, requirements);
   const jobTitle = scoreJobTitle(candidateDetails, requirements);
 
-  const score = Math.round(
-    skills * 0.40 +
-    experience * 0.30 +
-    qualification * 0.20 +
-    jobTitle * 0.10
+  let score = Math.round(
+    skills * 0.45 +
+    experience * 0.25 +
+    qualification * 0.15 +
+    jobTitle * 0.15
   );
+
+  // Critical Penalty: If required skills are specified but candidate matches 0 of them
+  if (requirements.otherKeySkills && skills === 0) {
+    score = Math.round(score * 0.4); // Cut score by 60%
+  }
 
   return {
     score,
@@ -177,3 +182,10 @@ export function rankCandidates(candidates, requirements) {
     })
     .sort((a, b) => b.matchScore - a.matchScore);
 }
+
+export const MATCH_COLORS = {
+  Strong:  { text: 'text-emerald-400', bg: 'bg-emerald-400/15', border: 'border-emerald-400/30', ring: '#34d399' },
+  Good:    { text: 'text-accent',      bg: 'bg-accent/15',      border: 'border-accent/30',      ring: '#4F8EF7' },
+  Partial: { text: 'text-gold',        bg: 'bg-gold/15',        border: 'border-gold/30',        ring: '#F5A623' },
+  Low:     { text: 'text-slate-400',   bg: 'bg-slate-400/15',   border: 'border-slate-400/25',   ring: '#94a3b8' },
+};

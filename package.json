@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "predev": "node sync-match.js",
     "dev": "nodemon server.js"
   },
   "dependencies": {

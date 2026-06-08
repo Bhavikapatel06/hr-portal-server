@@ -3,7 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import JobOpening from '../models/JobOpening.js';
 import Candidate from '../models/Candidate.js';
-import { parseResume } from '../services/parserService.js';
+import { parseResume, scoreCandidateAI } from '../services/parserService.js';
 import { scoreCandidate } from '../services/matchService.js';
 import { buildCandidateCSV } from '../services/csvService.js';
 
@@ -36,8 +36,6 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
       for (const file of req.files) {
         try {
           const fileBuffer = fs.readFileSync(file.path);
-          const parsed = await parseResume(fileBuffer, file.originalname, file.mimetype);
-
           const requirements = {
             designation:          opening.designation,
             department:           opening.department,
@@ -45,8 +43,16 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
             minimumQualification: opening.minimumQualification,
             otherKeySkills:       opening.otherKeySkills,
           };
-          const combined = { ...parsed.details, notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}` };
-          const match = scoreCandidate(combined, requirements);
+
+          const parsed = await parseResume(fileBuffer, file.originalname, file.mimetype, requirements);
+
+          let match;
+          if (parsed.matchData) {
+            match = parsed.matchData;
+          } else {
+            const combined = { ...parsed.details, notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}` };
+            match = scoreCandidate(combined, requirements);
+          }
 
           const candidate = new Candidate({
             jobOpeningId,
@@ -387,6 +393,33 @@ router.get('/candidates/status/:email', async (req, res) => {
     res.json(candidates);
   } catch (error) {
     console.error('Error retrieving candidates by email:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── POST /score-preview — Live AI match scoring for frontend preview ───────
+router.post('/score-preview', async (req, res) => {
+  try {
+    const { candidateDetails, requirements } = req.body;
+    if (!candidateDetails || !requirements) {
+      return res.status(400).json({ message: 'Missing candidateDetails or requirements' });
+    }
+    
+    try {
+      const matchData = await scoreCandidateAI(candidateDetails, requirements);
+      res.json(matchData);
+    } catch (aiError) {
+      console.warn('AI scoring failed, falling back to rule-based engine:', aiError.message);
+      const combined = { ...candidateDetails, notes: `${candidateDetails.skills || ''} ${candidateDetails.notes || ''}` };
+      const match = scoreCandidate(combined, requirements);
+      res.json({
+        score: match.score,
+        matchLevel: match.matchLevel,
+        breakdown: match.breakdown
+      });
+    }
+  } catch (error) {
+    console.error('Error in score preview:', error);
     res.status(500).json({ message: error.message });
   }
 });

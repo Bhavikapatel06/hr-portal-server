@@ -162,7 +162,7 @@ function fallbackParse(text, fileName) {
  * Main parser entry point. Reads file based on mime type, extracts raw text,
  * and calls LLM or fallback regex parser to get details.
  */
-export async function parseResume(fileBuffer, fileName, mimeType) {
+export async function parseResume(fileBuffer, fileName, mimeType, mrfRequirements = null) {
   let rawText = '';
 
   try {
@@ -185,7 +185,7 @@ export async function parseResume(fileBuffer, fileName, mimeType) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey && apiKey.trim().length > 0) {
       try {
-        const prompt = `You are an expert resume parsing system. Given the text extracted from a candidate's resume, extract their key profile details.
+        let prompt = `You are an expert resume parsing system. Given the text extracted from a candidate's resume, extract their key profile details.
 Return ONLY a valid JSON object matching this structure:
 {
   "fullName": "Candidate Name (or fallback to file name if not found)",
@@ -194,8 +194,28 @@ Return ONLY a valid JSON object matching this structure:
   "currentTitle": "Candidate's current or most recent job title/role",
   "totalExp": "Total experience in years (e.g. '3 years', '5 years', or 'Not specified')",
   "highestQual": "Highest education qualification (e.g. 'B.Tech', 'MBA', 'M.Tech', 'Graduate')",
-  "skills": "Comma-separated list of key technical and soft skills"
+  "skills": "Comma-separated list of key technical and soft skills"`;
+
+        if (mrfRequirements) {
+          prompt += `,
+  "matchScore": "An integer from 0 to 100 representing how well the candidate matches the requirements",
+  "matchLevel": "One of: 'Strong' (80-100), 'Good' (60-79), 'Partial' (35-59), 'Low' (0-34)",
+  "matchBreakdown": {
+    "skills": "Score out of 100",
+    "experience": "Score out of 100",
+    "qualification": "Score out of 100",
+    "jobTitle": "Score out of 100"
+  }
 }
+
+The candidate is applying for a job with the following requirements:
+${JSON.stringify(mrfRequirements, null, 2)}
+Please rigidly evaluate the candidate against these requirements. Be strict and realistic.`
+        } else {
+          prompt += `\n}`;
+        }
+
+        prompt += `
 Do not include any Markdown blocks, backticks, or prefix. Return raw JSON string ONLY.
 
 Resume Text:
@@ -221,6 +241,11 @@ ${rawText.slice(0, 10000)}
             skills: details.skills || '',
             notes: 'Successfully parsed using AI.'
           },
+          matchData: mrfRequirements ? {
+            score: details.matchScore || 0,
+            matchLevel: details.matchLevel || 'Low',
+            breakdown: details.matchBreakdown || { skills: 0, experience: 0, qualification: 0, jobTitle: 0 }
+          } : null,
           status: 'parsed'
         };
       } catch (geminiError) {
@@ -434,4 +459,43 @@ ${rawText.slice(0, 10000)}
       status: 'failed'
     };
   }
+}
+
+/**
+ * AI Match Scoring for live preview or existing candidates.
+ */
+export async function scoreCandidateAI(candidateDetails, mrfRequirements) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey.trim().length === 0) {
+    throw new Error('GEMINI_API_KEY is missing');
+  }
+
+  const prompt = `You are an expert HR matching system. Evaluate the candidate's profile against the job requirements.
+Return ONLY a valid JSON object matching this structure:
+{
+  "score": 0,
+  "matchLevel": "One of: 'Strong' (80-100), 'Good' (60-79), 'Partial' (35-59), 'Low' (0-34)",
+  "breakdown": {
+    "skills": 0,
+    "experience": 0,
+    "qualification": 0,
+    "jobTitle": 0
+  }
+}
+Note: 'score' and breakdown values must be numbers.
+Do not include any Markdown blocks or backticks. Return raw JSON string ONLY.
+
+Job Requirements:
+${JSON.stringify(mrfRequirements, null, 2)}
+
+Candidate Details:
+${JSON.stringify(candidateDetails, null, 2)}
+`;
+
+  const responseText = await callLLM(prompt, apiKey);
+  let jsonStr = responseText.trim();
+  if (jsonStr.startsWith('\`\`\`')) {
+    jsonStr = jsonStr.replace(/^\`\`\`(?:json)?\n/, '').replace(/\n\`\`\`$/, '');
+  }
+  return JSON.parse(jsonStr);
 }
