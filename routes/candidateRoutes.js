@@ -3,7 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import JobOpening from '../models/JobOpening.js';
 import Candidate from '../models/Candidate.js';
-import { parseResume } from '../services/parserService.js';
+import { parseResume, scoreCandidateAI } from '../services/parserService.js';
 import { scoreCandidate } from '../services/matchService.js';
 import { buildCandidateCSV } from '../services/csvService.js';
 
@@ -36,8 +36,6 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
       for (const file of req.files) {
         try {
           const fileBuffer = fs.readFileSync(file.path);
-          const parsed = await parseResume(fileBuffer, file.originalname, file.mimetype);
-
           const requirements = {
             designation:          opening.designation,
             department:           opening.department,
@@ -45,8 +43,16 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
             minimumQualification: opening.minimumQualification,
             otherKeySkills:       opening.otherKeySkills,
           };
-          const combined = { ...parsed.details, notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}` };
-          const match = scoreCandidate(combined, requirements);
+
+          const parsed = await parseResume(fileBuffer, file.originalname, file.mimetype, requirements);
+
+          let match;
+          if (parsed.matchData) {
+            match = parsed.matchData;
+          } else {
+            const combined = { ...parsed.details, notes: `${parsed.details.skills || ''} ${parsed.details.notes || ''}` };
+            match = scoreCandidate(combined, requirements);
+          }
 
           const candidate = new Candidate({
             jobOpeningId,
@@ -97,20 +103,31 @@ router.post('/mrf/:jobOpeningId/parse-resume', upload.single('resume'), async (r
   try {
     if (!req.file) return res.status(400).json({ message: 'No resume file uploaded' });
 
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const parsed = await parseResume(fileBuffer, req.file.originalname, req.file.mimetype);
+    const normalizedPath = req.file.path.replace(/\\/g, '/');
+    let parsed;
+    try {
+      const fileBuffer = fs.readFileSync(req.file.path);
+      parsed = await parseResume(fileBuffer, req.file.originalname, req.file.mimetype);
+    } catch (parseError) {
+      console.error('Inner resume parsing exception:', parseError);
+      parsed = {
+        details: {
+          fullName: req.file.originalname.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+          notes: `Parsing failed: ${parseError.message}`
+        },
+        status: 'failed'
+      };
+    }
 
     res.json({
-      details: parsed.details,
+      details: parsed.details || {},
       fileName: req.file.originalname,
-      filePath: req.file.path,
+      filePath: normalizedPath,
       fileSize: req.file.size,
+      parseStatus: parsed.status || 'failed',
     });
   } catch (error) {
-    console.error('Error parsing resume:', error);
-    if (req.file && fs.existsSync(req.file.path)) {
-      try { fs.unlinkSync(req.file.path); } catch (e) {}
-    }
+    console.error('Fatal error in parse-resume route:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -189,7 +206,43 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
     const opening = await JobOpening.findById(req.params.jobOpeningId);
     if (!opening) return res.status(404).json({ message: 'Job opening not found' });
     const candidates = await Candidate.find({ jobOpeningId: req.params.jobOpeningId }).sort({ matchScore: -1 });
-    res.json(candidates);
+    
+    // Flatten details + map overallStatus to stage for frontend
+    const mapped = candidates.map(c => {
+      const obj = c.toJSON();
+      const d = obj.details || {};
+      return {
+        ...obj,
+        // Flatten details to top-level fields expected by frontend
+        name:                 d.fullName         || obj.fileName || 'Unknown',
+        email:                d.email            || '',
+        phone:                d.phone            || '',
+        currentDesignation:   d.currentTitle     || '',
+        currentOrganization:  d.currentCompany   || '',
+        experience:           d.totalExp         || '',
+        currentCTC:           d.currentCtc       || '',
+        expectedCTC:          d.expectedCtc      || '',
+        noticePeriod:         d.noticePeriod     || '',
+        qualification:        d.highestQual      || '',
+        skills:               d.skills           || '',
+        currentLocation:      d.currentLocation  || '',
+        hrNotes:              d.notes            || '',
+        // Map interview fields
+        interviewDate:        obj.interview?.date          || '',
+        interviewTime:        obj.interview?.time          || '',
+        interviewMode:        obj.interview?.mode === 'online' ? 'Video Call' : 'In-Person',
+        interviewLocation:    obj.interview?.venue         || '',
+        interviewNotes:       obj.interview?.notes         || '',
+        interviewRound:       obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
+        interviewStatus:      obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
+        // Map resume url
+        resumeUrl:            obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
+        // Map stage
+        stage:                obj.overallStatus || 'Applied',
+      };
+    });
+
+    res.json(mapped);
   } catch (error) {
     console.error('Error retrieving candidates:', error);
     res.status(500).json({ message: error.message });
@@ -221,7 +274,42 @@ router.put('/candidates/:id/details', async (req, res) => {
     const candidate = await Candidate.findById(req.params.id);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
 
-    candidate.details = { ...candidate.details.toObject(), ...req.body };
+    // Extract stage if sent from frontend
+    if (req.body.stage) {
+      candidate.overallStatus = req.body.stage;
+    }
+    if (req.body.hrNotes !== undefined) {
+      candidate.details.notes = req.body.hrNotes;
+    }
+
+    // Map flat frontend field names to nested details fields
+    const fieldMap = {
+      name:                 'fullName',
+      email:                'email',
+      phone:                'phone',
+      currentDesignation:   'currentTitle',
+      currentOrganization:  'currentCompany',
+      experience:           'totalExp',
+      currentCTC:           'currentCtc',
+      expectedCTC:          'expectedCtc',
+      noticePeriod:         'noticePeriod',
+      qualification:        'highestQual',
+      skills:               'skills',
+      currentLocation:      'currentLocation',
+    };
+    Object.entries(fieldMap).forEach(([frontKey, backKey]) => {
+      if (req.body[frontKey] !== undefined) {
+        candidate.details[backKey] = req.body[frontKey];
+      }
+    });
+
+    // Also accept direct details patch (for backward compat)
+    const directFields = ['fullName', 'email', 'phone', 'currentTitle', 'totalExp', 'highestQual', 
+      'skills', 'currentLocation', 'currentCompany', 'currentCtc', 'expectedCtc', 'noticePeriod'];
+    directFields.forEach(key => {
+      if (req.body[key] !== undefined) candidate.details[key] = req.body[key];
+    });
+
     candidate.parseStatus = 'parsed';
 
     const opening = await JobOpening.findById(candidate.jobOpeningId);
@@ -233,15 +321,60 @@ router.put('/candidates/:id/details', async (req, res) => {
         minimumQualification: opening.minimumQualification,
         otherKeySkills:       opening.otherKeySkills,
       };
-      const combined = { ...candidate.details, notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}` };
+      const combined = { ...candidate.details.toObject(), notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}` };
       const match = scoreCandidate(combined, requirements);
       candidate.matchScore    = match.score;
       candidate.matchLevel    = match.matchLevel;
       candidate.matchBreakdown = match.breakdown;
+
+      // Sync to MRF and Google Sheet if candidate is offered/joined
+      if (candidate.overallStatus === 'Offer' || candidate.overallStatus === 'Joined') {
+        opening.offeredCandidateName = candidate.details.fullName || '';
+        opening.offeredCTC = candidate.details.expectedCtc || '';
+        opening.lastCTC = candidate.details.currentCtc || '';
+        opening.lastOrganization = candidate.details.currentCompany || '';
+        opening.lastDesignation = candidate.details.currentTitle || '';
+        opening.totalPreviousExp = candidate.details.totalExp || '';
+        opening.candidateLocation = candidate.details.currentLocation || '';
+        if (candidate.overallStatus === 'Joined') {
+          opening.actualDOJ = new Date();
+          opening.positionStatus = 'Filled';
+          opening.requirementStatus = 'Closed';
+        } else {
+          opening.offerDate = new Date();
+          opening.offerStatus = 'Offered';
+        }
+        await opening.save();
+        
+        const { updateMRFInSheet } = await import('../services/googleSheetsService.js');
+        await updateMRFInSheet(opening, opening.sheetRowIndex);
+      }
     }
 
     await candidate.save();
-    res.json(candidate);
+    
+    // Return flattened object for frontend
+    const obj = candidate.toJSON();
+    const d = obj.details || {};
+    const ret = {
+      ...obj,
+      name:                d.fullName         || obj.fileName || 'Unknown',
+      email:               d.email            || '',
+      phone:               d.phone            || '',
+      currentDesignation:  d.currentTitle     || '',
+      currentOrganization: d.currentCompany   || '',
+      experience:          d.totalExp         || '',
+      currentCTC:          d.currentCtc       || '',
+      expectedCTC:         d.expectedCtc      || '',
+      noticePeriod:        d.noticePeriod     || '',
+      qualification:       d.highestQual      || '',
+      skills:              d.skills           || '',
+      currentLocation:     d.currentLocation  || '',
+      hrNotes:             d.notes            || '',
+      stage:               obj.overallStatus  || 'Applied',
+    };
+    
+    res.json(ret);
   } catch (error) {
     console.error('Error updating candidate details:', error);
     res.status(500).json({ message: error.message });
@@ -254,8 +387,34 @@ router.put('/candidates/:id/interview', async (req, res) => {
     const candidate = await Candidate.findById(req.params.id);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
 
-    candidate.interview = { ...candidate.interview.toObject(), ...req.body };
-    if (candidate.interview.scheduled) candidate.overallStatus = 'scheduled';
+    const {
+      interviewDate, interviewTime, interviewMode, interviewLocation,
+      interviewerName, interviewRound, interviewNotes, interviewStatus,
+    } = req.body;
+
+    // Map flat frontend fields to the nested interview schema
+    const modeMap = { 'In-Person': 'offline', 'Video Call': 'online', 'Phone Screen': 'online', 'Panel': 'offline' };
+    const typeMap = {
+      'Round 1 – HR Screen': 'HR', 'Round 1': 'HR',
+      'Round 2 – Technical': 'Technical', 'Technical': 'Technical',
+      'Round 3 – Managerial': 'HR', 'Final Round': 'Final',
+    };
+
+    candidate.interview = {
+      scheduled: true,
+      date:  interviewDate  || candidate.interview?.date  || '',
+      time:  interviewTime  || candidate.interview?.time  || '',
+      mode:  modeMap[interviewMode] || 'offline',
+      type:  typeMap[interviewRound] || 'Technical',
+      venue: interviewLocation || candidate.interview?.venue || '',
+      notes: interviewNotes   || candidate.interview?.notes || '',
+      link:  candidate.interview?.link || '',
+    };
+
+    // Move stage to Interview when scheduled
+    if (candidate.overallStatus === 'Applied' || candidate.overallStatus === 'Screening' || candidate.overallStatus === 'new') {
+      candidate.overallStatus = 'Interview';
+    }
 
     await candidate.save();
     res.json(candidate);
@@ -309,7 +468,12 @@ router.delete('/candidates/:id', async (req, res) => {
 router.get('/candidates', async (req, res) => {
   try {
     const candidates = await Candidate.find().populate('jobOpeningId').sort({ createdAt: -1 });
-    res.json(candidates);
+    const mapped = candidates.map(c => {
+      const obj = c.toJSON();
+      obj.stage = obj.overallStatus;
+      return obj;
+    });
+    res.json(mapped);
   } catch (error) {
     console.error('Error retrieving all candidates:', error);
     res.status(500).json({ message: error.message });
@@ -387,6 +551,33 @@ router.get('/candidates/status/:email', async (req, res) => {
     res.json(candidates);
   } catch (error) {
     console.error('Error retrieving candidates by email:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── POST /score-preview — Live AI match scoring for frontend preview ───────
+router.post('/score-preview', async (req, res) => {
+  try {
+    const { candidateDetails, requirements } = req.body;
+    if (!candidateDetails || !requirements) {
+      return res.status(400).json({ message: 'Missing candidateDetails or requirements' });
+    }
+    
+    try {
+      const matchData = await scoreCandidateAI(candidateDetails, requirements);
+      res.json(matchData);
+    } catch (aiError) {
+      console.warn('AI scoring failed, falling back to rule-based engine:', aiError.message);
+      const combined = { ...candidateDetails, notes: `${candidateDetails.skills || ''} ${candidateDetails.notes || ''}` };
+      const match = scoreCandidate(combined, requirements);
+      res.json({
+        score: match.score,
+        matchLevel: match.matchLevel,
+        breakdown: match.breakdown
+      });
+    }
+  } catch (error) {
+    console.error('Error in score preview:', error);
     res.status(500).json({ message: error.message });
   }
 });
