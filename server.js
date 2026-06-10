@@ -29,7 +29,7 @@ const app = express();
 
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
@@ -48,28 +48,30 @@ app.get('/', (req, res) => {
 // Seed default data
 const seedDatabase = async () => {
   try {
-    // Seed demo users
-    const userCount = await User.countDocuments();
-    if (userCount === 0) {
-      console.log('Seeding demo users...');
-      await User.create([
-        {
-          name: 'HR Admin',
-          email: 'admin@hrportal.com',
-          password: 'admin123',
-          role: 'admin',
-        },
-        {
-          name: 'Demo Candidate',
-          email: 'candidate@hrportal.com',
-          password: 'candidate123',
-          role: 'candidate',
-        },
-      ]);
-      console.log('Demo users created!');
-      console.log('  Admin:     admin@hrportal.com / admin123');
-      console.log('  Candidate: candidate@hrportal.com / candidate123');
+    // Clean up any old owner user documents
+    await User.deleteMany({ email: 'owner@hrportal.com' });
+
+    // Upsert demo users — creates missing ones, leaves existing untouched
+    const DEMO_USERS = [
+      { name: 'HR Admin',        email: 'admin@hrportal.com',    password: 'admin123',    role: 'admin' },
+      { name: 'Demo Candidate',  email: 'candidate@hrportal.com',password: 'candidate123',role: 'candidate' },
+      { name: 'Department Head', email: 'depthead@hrportal.com', password: 'depthead123', role: 'department_head' },
+      { name: 'HR Manager',      email: 'hr@hrportal.com',       password: 'hr123456',    role: 'hr' },
+    ];
+
+    for (const u of DEMO_USERS) {
+      const exists = await User.findOne({ email: u.email });
+      if (!exists) {
+        await User.create(u);
+        console.log(`  Created demo user: ${u.email} (${u.role})`);
+      }
     }
+    console.log('Demo users ready.');
+    console.log('  Admin:       admin@hrportal.com / admin123');
+    console.log('  Candidate:   candidate@hrportal.com / candidate123');
+    console.log('  Dept Head:   depthead@hrportal.com / depthead123');
+    console.log('  HR Manager:  hr@hrportal.com / hr123456');
+
 
     // Seed job openings
     const count = await JobOpening.countDocuments();

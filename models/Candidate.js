@@ -34,8 +34,8 @@ const candidateSchema = new mongoose.Schema({
   },
   overallStatus: {
     type: String,
-    enum: ['new', 'shortlisted', 'scheduled', 'selected', 'rejected', 'on_hold'],
-    default: 'new',
+    enum: ['Applied', 'Screening', 'Interview', 'Offer', 'Joined', 'Rejected', 'new', 'shortlisted', 'scheduled', 'selected', 'on_hold'],
+    default: 'Applied',
   },
   interview: {
     scheduled: { type: Boolean, default: false },

@@ -1,7 +1,7 @@
-
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+/** Verifies JWT and attaches req.user */
 export const protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -24,10 +24,25 @@ export const protect = async (req, res, next) => {
   }
 };
 
+/** Legacy: admin only */
 export const adminOnly = (req, res, next) => {
   if (req.user && req.user.role === 'admin') {
     next();
   } else {
     res.status(403).json({ message: 'Access denied. HR Admin only.' });
+  }
+};
+
+/**
+ * Role-based access control — pass one or more allowed roles.
+ * Usage: router.patch('/approve', protect, requireRole('admin'), handler)
+ */
+export const requireRole = (...roles) => (req, res, next) => {
+  if (req.user && roles.includes(req.user.role)) {
+    next();
+  } else {
+    res.status(403).json({
+      message: `Access denied. Required role(s): ${roles.join(', ')}. Your role: ${req.user?.role || 'none'}.`,
+    });
   }
 };
