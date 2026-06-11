@@ -5,6 +5,7 @@ import connectDB from './config/db.js';
 import mrfRoutes from './routes/mrfRoutes.js';
 import candidateRoutes from './routes/candidateRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 import JobOpening from './models/JobOpening.js';
 import User from './models/User.js';
 import bcrypt from 'bcryptjs';
@@ -40,6 +41,7 @@ app.use('/uploads', express.static('uploads'));
 app.use('/api/auth', authRoutes);
 app.use('/api/mrf', mrfRoutes);
 app.use('/api', candidateRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'HR Portal API Server is running smoothly' });
