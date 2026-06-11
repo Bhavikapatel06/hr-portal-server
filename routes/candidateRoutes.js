@@ -448,6 +448,47 @@ router.put('/candidates/:id/feedback', async (req, res) => {
   }
 });
 
+// ── GET /candidates/:id — get single candidate with populated job details ──
+router.get('/candidates/:id', async (req, res) => {
+  try {
+    const candidate = await Candidate.findById(req.params.id).populate('jobOpeningId');
+    if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
+    
+    const obj = candidate.toJSON();
+    const d = obj.details || {};
+    const ret = {
+      ...obj,
+      name:                 d.fullName         || obj.fileName || 'Unknown',
+      email:                d.email            || '',
+      phone:                d.phone            || '',
+      currentDesignation:   d.currentTitle     || '',
+      currentOrganization:  d.currentCompany   || '',
+      experience:           d.totalExp         || '',
+      currentCTC:           d.currentCtc       || '',
+      expectedCTC:          d.expectedCtc      || '',
+      noticePeriod:         d.noticePeriod     || '',
+      qualification:        d.highestQual      || '',
+      skills:               d.skills           || '',
+      currentLocation:      d.currentLocation  || '',
+      hrNotes:              d.notes            || '',
+      interviewDate:        obj.interview?.date          || '',
+      interviewTime:        obj.interview?.time          || '',
+      interviewMode:        obj.interview?.mode === 'online' ? 'Video Call' : 'In-Person',
+      interviewLocation:    obj.interview?.venue         || '',
+      interviewNotes:       obj.interview?.notes         || '',
+      interviewRound:       obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
+      interviewStatus:      obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
+      resumeUrl:            obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
+      stage:                obj.overallStatus || 'Applied',
+    };
+    
+    res.json(ret);
+  } catch (error) {
+    console.error('Error retrieving candidate details:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ── DELETE /candidates/:id — delete candidate ──────────────────────────────
 router.delete('/candidates/:id', async (req, res) => {
   try {
