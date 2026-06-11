@@ -16,6 +16,27 @@ const guessName = (fileName = '') =>
     .trim() || fileName;
 
 /**
+ * Parse PDF text with automatic CRLF corruption repair and raw text fallback.
+ */
+async function parsePDFText(fileBuffer) {
+  try {
+    const pdfData = await pdfParse(fileBuffer);
+    return pdfData.text;
+  } catch (err) {
+    console.warn('Initial PDF parsing failed, trying CRLF -> LF cleanup:', err.message);
+    try {
+      const binaryString = fileBuffer.toString('binary');
+      const cleanedBuf = Buffer.from(binaryString.replace(/\r\n/g, '\n'), 'binary');
+      const pdfData = await pdfParse(cleanedBuf);
+      return pdfData.text;
+    } catch (cleanErr) {
+      console.warn('Cleaned PDF parsing also failed, trying raw text fallback:', cleanErr.message);
+      return fileBuffer.toString('utf-8');
+    }
+  }
+}
+
+/**
  * Universal LLM caller supporting native Gemini keys, OpenRouter keys, and OpenAI keys.
  */
 async function callLLM(prompt, apiKey) {
@@ -167,11 +188,15 @@ export async function parseResume(fileBuffer, fileName, mimeType, mrfRequirement
 
   try {
     if (mimeType.includes('pdf')) {
-      const pdfData = await pdfParse(fileBuffer);
-      rawText = pdfData.text;
+      rawText = await parsePDFText(fileBuffer);
     } else if (mimeType.includes('word') || mimeType.includes('officedocument.wordprocessingml') || fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-      const result = await mammoth.extractRawText({ buffer: fileBuffer });
-      rawText = result.value;
+      try {
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        rawText = result.value;
+      } catch (mammothErr) {
+        console.warn('Mammoth extraction failed, falling back to text representation:', mammothErr.message);
+        rawText = fileBuffer.toString('utf-8');
+      }
     } else if (mimeType.includes('text') || fileName.endsWith('.txt')) {
       rawText = fileBuffer.toString('utf-8');
     } else {
@@ -322,6 +347,8 @@ function fallbackParseMRF(text, fileName) {
 
   let noOfPositions = '';
   const posRegex = /(?:no\.? of positions|positions|vacancies|vacancy)\s*:\s*(\d+)/i;
+  const posMatch = text.match(posRegex);
+  if (posMatch) noOfPositions = posMatch[1].trim();
   let purposeOfJob = '';
   // Match "Purpose of the Job" or "Summary" up to the next heading
   const summaryRegex = /(?:summary|purpose(?: of (?:the )?job)?|objective)\s*:?\s*([\s\S]*?)(?:roles and responsibilities|responsibilities|duties|requirements|qualification|4\.\s*Qualification|$)/i;
@@ -363,11 +390,15 @@ export async function parseMRF(fileBuffer, fileName, mimeType) {
 
   try {
     if (mimeType.includes('pdf')) {
-      const pdfData = await pdfParse(fileBuffer);
-      rawText = pdfData.text;
+      rawText = await parsePDFText(fileBuffer);
     } else if (mimeType.includes('word') || mimeType.includes('officedocument.wordprocessingml') || fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-      const result = await mammoth.extractRawText({ buffer: fileBuffer });
-      rawText = result.value;
+      try {
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        rawText = result.value;
+      } catch (mammothErr) {
+        console.warn('Mammoth extraction failed, falling back to text representation:', mammothErr.message);
+        rawText = fileBuffer.toString('utf-8');
+      }
     } else if (mimeType.includes('text') || fileName.endsWith('.txt')) {
       rawText = fileBuffer.toString('utf-8');
     } else {
@@ -499,3 +530,4 @@ ${JSON.stringify(candidateDetails, null, 2)}
   }
   return JSON.parse(jsonStr);
 }
+// Trigger reload 2

@@ -51,7 +51,7 @@ const jobOpeningSchema = new mongoose.Schema({
   // ── Requirement Status (col 7) ──────────────────────────────────────────
   requirementStatus: {
     type: String,
-    enum: ['Pending', 'In Progress', 'Fulfilled', 'Cancelled'],
+    enum: ['Pending', 'In Progress', 'Fulfilled', 'Cancelled', 'Closed'],
     default: 'Pending',
   },
 
@@ -98,6 +98,7 @@ const jobOpeningSchema = new mongoose.Schema({
   sheetRowIndex:        { type: Number, default: null }, // row # in Google Sheet
 
   createdAt: { type: Date, default: Date.now },
+  closedAt:  { type: Date, default: null },
 });
 
 // Auto-calculate TAT, CTC diffs before save
