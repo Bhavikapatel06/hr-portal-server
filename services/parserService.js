@@ -170,8 +170,13 @@ export async function parseResume(fileBuffer, fileName, mimeType, mrfRequirement
       const pdfData = await pdfParse(fileBuffer);
       rawText = pdfData.text;
     } else if (mimeType.includes('word') || mimeType.includes('officedocument.wordprocessingml') || fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-      const result = await mammoth.extractRawText({ buffer: fileBuffer });
-      rawText = result.value;
+      try {
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        rawText = result.value;
+      } catch (mammothErr) {
+        console.warn('Mammoth extraction failed, falling back to text representation:', mammothErr.message);
+        rawText = fileBuffer.toString('utf-8');
+      }
     } else if (mimeType.includes('text') || fileName.endsWith('.txt')) {
       rawText = fileBuffer.toString('utf-8');
     } else {
@@ -366,8 +371,13 @@ export async function parseMRF(fileBuffer, fileName, mimeType) {
       const pdfData = await pdfParse(fileBuffer);
       rawText = pdfData.text;
     } else if (mimeType.includes('word') || mimeType.includes('officedocument.wordprocessingml') || fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-      const result = await mammoth.extractRawText({ buffer: fileBuffer });
-      rawText = result.value;
+      try {
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        rawText = result.value;
+      } catch (mammothErr) {
+        console.warn('Mammoth extraction failed, falling back to text representation:', mammothErr.message);
+        rawText = fileBuffer.toString('utf-8');
+      }
     } else if (mimeType.includes('text') || fileName.endsWith('.txt')) {
       rawText = fileBuffer.toString('utf-8');
     } else {

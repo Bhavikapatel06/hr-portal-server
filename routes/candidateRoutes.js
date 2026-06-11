@@ -338,8 +338,10 @@ router.put('/candidates/:id/details', async (req, res) => {
         opening.candidateLocation = candidate.details.currentLocation || '';
         if (candidate.overallStatus === 'Joined') {
           opening.actualDOJ = new Date();
-          opening.positionStatus = 'Filled';
-          opening.requirementStatus = 'Closed';
+          opening.positionStatus = 'Closed';
+          opening.requirementStatus = 'Fulfilled';
+          opening.offerStatus = 'Joined';
+          opening.closedAt = new Date();
         } else {
           opening.offerDate = new Date();
           opening.offerStatus = 'Offered';
