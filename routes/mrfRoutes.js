@@ -238,6 +238,30 @@ router.patch('/:id/create-job', protect, requireRole('hr', 'admin'), async (req,
   }
 });
 
+// ── PATCH /mrf/:id/close — HR manually closes an active job opening ────────
+router.patch('/:id/close', protect, requireRole('hr', 'admin'), async (req, res) => {
+  try {
+    const mrf = await JobOpening.findById(req.params.id);
+    if (!mrf) return res.status(404).json({ message: 'MRF not found' });
+    if (mrf.positionStatus === 'Closed') {
+      return res.status(400).json({ message: 'Job is already closed.' });
+    }
+
+    mrf.positionStatus = 'Closed';
+    mrf.requirementStatus = 'Closed';
+    mrf.closedAt = new Date();
+    const saved = await mrf.save();
+
+    if (saved.sheetRowIndex) {
+      await updateMRFInSheet(saved, saved.sheetRowIndex);
+    }
+    res.json(saved);
+  } catch (error) {
+    console.error('Error closing job opening:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ── PATCH /mrf/:id/offer — HR records offer details ───────────────────────
 router.patch('/:id/offer', protect, requireRole('hr', 'admin'), async (req, res) => {
   try {
