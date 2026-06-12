@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import JobOpening from '../models/JobOpening.js';
 import Candidate from '../models/Candidate.js';
+import Notification from '../models/Notification.js';
 import { parseResume, scoreCandidateAI } from '../services/parserService.js';
 import { scoreCandidate } from '../services/matchService.js';
 import { buildCandidateCSV } from '../services/csvService.js';
@@ -91,6 +92,24 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
     }
 
     const allCandidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
+    
+    // Notifications for HR Manager
+    let highMatches = candidates.filter(c => c.matchScore > 80).length;
+    await Notification.create({
+      recipientRole: 'hr',
+      title: 'New Candidates Applied',
+      message: `${candidates.length} new candidate(s) added for ${opening.designation}.`,
+      type: 'CANDIDATE_APPLIED',
+    });
+    if (highMatches > 0) {
+      await Notification.create({
+        recipientRole: 'hr',
+        title: 'High Match Candidates',
+        message: `${highMatches} candidate(s) match the job requirements (>80%) for ${opening.designation}.`,
+        type: 'HIGH_MATCH_CANDIDATE',
+      });
+    }
+
     res.status(201).json(allCandidates);
   } catch (error) {
     console.error('Error in batch resume upload:', error);
@@ -193,6 +212,24 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
     });
 
     await candidate.save();
+
+    // Notify HR Manager about the application
+    await Notification.create({
+      recipientRole: 'hr',
+      title: 'New Candidate Applied',
+      message: `A new candidate applied for ${opening.designation}.`,
+      type: 'CANDIDATE_APPLIED',
+    });
+
+    if (match.score > 80) {
+      await Notification.create({
+        recipientRole: 'hr',
+        title: 'High Match Candidate',
+        message: `A candidate matching the job requirements (>80%) applied for ${opening.designation}.`,
+        type: 'HIGH_MATCH_CANDIDATE',
+      });
+    }
+
     res.status(201).json(candidate);
   } catch (error) {
     console.error('Error saving candidate application:', error);
@@ -274,9 +311,13 @@ router.put('/candidates/:id/details', async (req, res) => {
     const candidate = await Candidate.findById(req.params.id);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
 
+    let statusChanged = false;
+    let oldStatus = candidate.overallStatus;
+    
     // Extract stage if sent from frontend
-    if (req.body.stage) {
+    if (req.body.stage && req.body.stage !== candidate.overallStatus) {
       candidate.overallStatus = req.body.stage;
+      statusChanged = true;
     }
     if (req.body.hrNotes !== undefined) {
       candidate.details.notes = req.body.hrNotes;
@@ -355,6 +396,26 @@ router.put('/candidates/:id/details', async (req, res) => {
 
     await candidate.save();
     
+    // Send Notifications
+    if (statusChanged && candidate.details.email) {
+      await Notification.create({
+        recipientEmail: candidate.details.email,
+        title: 'Application Status Updated',
+        message: `Your application status for ${opening ? opening.designation : 'the job'} has been updated to ${candidate.overallStatus}.`,
+        type: 'STATUS_UPDATE',
+        link: '/candidate-status'
+      });
+    }
+
+    // Notify HR and Dept Head if hired
+    if (statusChanged && (candidate.overallStatus === 'Offer' || candidate.overallStatus === 'Joined')) {
+      const msg = candidate.overallStatus === 'Joined' 
+        ? `Candidate ${candidate.details.fullName} selected for ${opening.designation}. Job posting closed.`
+        : `Candidate ${candidate.details.fullName} was offered the ${opening.designation} role.`;
+      await Notification.create({ recipientRole: 'admin', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED' });
+      await Notification.create({ recipientRole: 'department_head', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED' });
+    }
+    
     // Return flattened object for frontend
     const obj = candidate.toJSON();
     const d = obj.details || {};
@@ -419,6 +480,18 @@ router.put('/candidates/:id/interview', async (req, res) => {
     }
 
     await candidate.save();
+
+    if (candidate.details?.email) {
+      const dateStr = candidate.interview.date ? ` on ${candidate.interview.date}` : '';
+      await Notification.create({
+        recipientEmail: candidate.details.email,
+        title: 'Interview Scheduled',
+        message: `An interview has been scheduled for your application${dateStr}.`,
+        type: 'INTERVIEW_SCHEDULED',
+        link: '/candidate-status'
+      });
+    }
+
     res.json(candidate);
   } catch (error) {
     console.error('Error scheduling interview:', error);

@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import JobOpening from '../models/JobOpening.js';
 import Candidate from '../models/Candidate.js';
+import Notification from '../models/Notification.js';
 import { parseMRF } from '../services/parserService.js';
 import { buildCandidateCSV } from '../services/csvService.js';
 import { generateMrfPDF } from '../services/pdfService.js';
@@ -100,6 +101,14 @@ router.post('/', protect, requireRole('department_head'), async (req, res) => {
       await saved.save();
     }
 
+    // Notify HR Admin
+    await Notification.create({
+      recipientRole: 'admin',
+      title: 'New MRF Submitted',
+      message: `1 pending approval: ${req.user.name} submitted a new MRF for ${saved.designation}.`,
+      type: 'MRF_CREATED'
+    });
+
     res.status(201).json(saved);
   } catch (error) {
     console.error('Error creating MRF:', error);
@@ -146,6 +155,14 @@ router.patch('/:id/submit', protect, requireRole('department_head'), async (req,
       await saved.save();
     }
 
+    // Notify HR Admin
+    await Notification.create({
+      recipientRole: 'admin',
+      title: 'Draft MRF Submitted',
+      message: `1 pending approval: ${req.user.name} submitted an MRF for ${saved.designation}.`,
+      type: 'MRF_CREATED'
+    });
+
     res.json(saved);
   } catch (error) {
     console.error('Error submitting MRF:', error);
@@ -173,6 +190,22 @@ router.patch('/:id/approve', protect, requireRole('admin'), async (req, res) => 
     // Update sheet row
     await updateMRFInSheet(saved, saved.sheetRowIndex);
 
+    // Notify HR Manager
+    await Notification.create({
+      recipientRole: 'hr',
+      title: 'MRF Approved',
+      message: `The MRF for ${saved.designation} was approved by ${req.user.name}. Please create a job posting.`,
+      type: 'MRF_APPROVED'
+    });
+
+    // Notify Dept Head
+    await Notification.create({
+      recipientRole: 'department_head',
+      title: 'MRF Request Approved',
+      message: `Your MRF request for ${saved.designation} has been approved.`,
+      type: 'MRF_APPROVED'
+    });
+
     res.json(saved);
   } catch (error) {
     console.error('Error approving MRF:', error);
@@ -197,6 +230,16 @@ router.patch('/:id/reject', protect, requireRole('admin'), async (req, res) => {
     const saved = await mrf.save();
 
     await updateMRFInSheet(saved, saved.sheetRowIndex);
+
+    // Notify Dept Head (Submitter)
+    if (mrf.submittedBy) {
+      await Notification.create({
+        recipientRole: 'department_head',
+        title: 'MRF Rejected',
+        message: `Your MRF for ${saved.designation} was rejected by ${req.user.name}. Note: ${saved.rejectionNote || 'None'}`,
+        type: 'MRF_REJECTED'
+      });
+    }
 
     res.json(saved);
   } catch (error) {
@@ -230,6 +273,30 @@ router.patch('/:id/create-job', protect, requireRole('hr', 'admin'), async (req,
     if (saved.sheetRowIndex) {
       await updateMRFInSheet(saved, saved.sheetRowIndex);
     }
+
+    // Notify all candidates
+    await Notification.create({
+      recipientRole: 'candidate',
+      title: 'New Job Posting',
+      message: `A new role for ${saved.designation} is now open!`,
+      type: 'JOB_POSTED',
+      link: '/mrf-status'
+    });
+
+    // Notify Dept Head and Admin
+    await Notification.create({
+      recipientRole: 'department_head',
+      title: 'Job Posted Successfully',
+      message: `Job posting for ${saved.designation} has been created successfully.`,
+      type: 'JOB_POSTED',
+    });
+    
+    await Notification.create({
+      recipientRole: 'admin',
+      title: 'Job Posted Successfully',
+      message: `Job posting for ${saved.designation} has been created successfully.`,
+      type: 'JOB_POSTED',
+    });
 
     res.json(saved);
   } catch (error) {
