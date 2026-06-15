@@ -8,6 +8,7 @@ import authRoutes from './routes/authRoutes.js';
 import JobOpening from './models/JobOpening.js';
 import User from './models/User.js';
 import bcrypt from 'bcryptjs';
+import { appendMRFToSheet } from './services/googleSheetsService.js';
 
 dotenv.config();
 
@@ -149,8 +150,16 @@ const seedDatabase = async () => {
           proposedSalary: '4-8 LPA',
         }
       ];
-      await JobOpening.insertMany(SEEDS);
+      const seeded = await JobOpening.insertMany(SEEDS);
       console.log('Database seeded successfully!');
+      // Sync seeded MRFs to Google Sheet
+      for (const mrf of seeded) {
+        try {
+          await appendMRFToSheet(mrf);
+        } catch (e) {
+          console.warn(`  [Sheet sync skipped for ${mrf.designation}]: ${e.message}`);
+        }
+      }
     }
   } catch (error) {
     console.error('Seeding failed:', error.message);

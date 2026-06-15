@@ -15,41 +15,68 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ── Column definitions matching Google Sheet ─────────────────────────────────
-const SHEET_HEADERS = [
-  'Vacancy Location',                 // 1
-  'Designation',                      // 2
-  'Department',                       // 3
-  'Number of Vacancies',              // 4
-  'Position Status',                  // 5
-  'Requirement Status',               // 6
-  'Vacancy Reason',                   // 7
-  'Process Owner',                    // 8
-  'pre employee medical status',      // 9
-  'Offer Date',                       // 10
-  'Tentative DOJ',                    // 11
-  'TAT (Days)',                       // 12
-  'Offered Candidate Name',           // 13
-  'Actual DOJ',                       // 14
-  'Source of Hiring',                 // 15
-  'Internal Reference Name',          // 16
-  'Qualification',                    // 17
-  'Last Organization',                // 18
-  'Last Location ',                   // 19 (Note trailing space in original header)
-  'Last Designation',                 // 20
-  'Total Experience (Years)',         // 21
-  'Last CTC (LPA)',                   // 22
-  'Offered CTC (LPA)',                // 23
-  'COC (LPA)',                        // 24
-  'CTC Difference (%)',               // 25
-  'Recruitment Remarks',              // 26
-  'Exit Employee Name',               // 27
-  'Exit Employee Designation',        // 28
-  'Exit Date',                        // 29
-  'Additional Remarks',               // 30
-  // Extra metadata appended after the canonical columns
-  'MRF Status',
+// ── Column definitions matching the two Google Sheets ───────────────────────
+const DEPT_HEAD_MRF_HEADERS = [
   'MRF ID',
+  'MRF Status',
+  'Designation',
+  'Department',
+  'Section',
+  'Vacancy Location',
+  'Number of Vacancies',
+  'Requirement Type',
+  'Experience Required',
+  'Proposed Salary',
+  'Level of Urgency',
+  'Vacancy Reason',
+  'Replacement For',
+  'Justification',
+  'Purpose of Job',
+  'Roles & Responsibilities',
+  'Minimum Qualification',
+  'Other Key Skills',
+  'Reports To',
+  'Submitted By',
+  'Approved By',
+  'Approved At',
+  'Created At',
+  'Specializations',
+  'Age Range',
+  'Preferred Industries',
+  'IT Requirements'
+];
+
+const RECRUITMENT_TRACKER_HEADERS = [
+  'MRF ID',
+  'Designation',
+  'Department',
+  'Vacancy Location',
+  'Position Status',
+  'Requirement Status',
+  'Offer Status',
+  'Offered Candidate Name',
+  'Offered Designation',
+  'Offer Date',
+  'Tentative DOJ',
+  'Actual DOJ',
+  'TAT (Days)',
+  'pre employee medical status',
+  'Source of Hiring',
+  'Internal Reference Name',
+  'Qualification',
+  'Last Organization',
+  'Last Location',
+  'Last Designation',
+  'Total Experience (Years)',
+  'Last CTC (LPA)',
+  'Offered CTC (LPA)',
+  'COC (LPA)',
+  'CTC Difference (%)',
+  'Recruitment Remarks',
+  'Exit Employee Name',
+  'Exit Employee Designation',
+  'Exit Date',
+  'Additional Remarks'
 ];
 
 // ── Auth helper ─────────────────────────────────────────────────────────────
@@ -76,67 +103,127 @@ function getAuthClient() {
   });
 }
 
-// ── Map an MRF document → row array ──────────────────────────────
-function mrfToRow(mrf) {
+// ── Map an MRF document → row array for HOD MRF Sheet ──────────────────────
+function mrfToHODRow(mrf) {
   const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
   return [
-    mrf.location             || '',  // 1 Vacancy Location
-    mrf.designation          || '',  // 2 Designation
-    mrf.department           || '',  // 3 Department
-    mrf.noOfPositions        ?? '',  // 4 Number of Vacancies
-    mrf.positionStatus       || '',  // 5 Position Status
-    mrf.requirementStatus    || '',  // 6 Requirement Status
-    mrf.reasonForRequest     || '',  // 7 Vacancy Reason
-    mrf.processOwnerName     || '',  // 8 Process Owner
-    mrf.preEmploymentMedicalStatus || '', // 9 pre employee medical status
-    fmt(mrf.offerDate),              // 10 Offer Date
-    fmt(mrf.tentativeDOJ),           // 11 Tentative DOJ
-    mrf.tat                  ?? '',  // 12 TAT (Days)
-    mrf.offeredCandidateName || '',  // 13 Offered Candidate Name
-    fmt(mrf.actualDOJ),              // 14 Actual DOJ
-    mrf.sourceOfHiring       || '',  // 15 Source of Hiring
-    mrf.internalRefName      || '',  // 16 Internal Reference Name
-    mrf.minimumQualification || '',  // 17 Qualification
-    mrf.lastOrganization     || '',  // 18 Last Organization
-    mrf.candidateLocation    || '',  // 19 Last Location 
-    mrf.lastDesignation      || '',  // 20 Last Designation
-    mrf.totalPreviousExp     || '',  // 21 Total Experience (Years)
-    mrf.lastCTC              || '',  // 22 Last CTC (LPA)
-    mrf.offeredCTC           || '',  // 23 Offered CTC (LPA)
-    mrf.costOfCompany        || '',  // 24 COC (LPA)
-    mrf.ctcDifferencePercent ?? '',  // 25 CTC Difference (%)
-    mrf.recruitmentRemarks   || '',  // 26 Recruitment Remarks
-    mrf.employeeName         || '',  // 27 Exit Employee Name
-    mrf.employeeDesignation  || '',  // 28 Exit Employee Designation
-    fmt(mrf.positionStartDate),      // 29 Exit Date (Position Start Date)
-    mrf.additionalRemarks    || '',  // 30 Additional Remarks
-    mrf.mrfStatus            || '',  // extra: MRF Status
-    String(mrf._id || ''),           // extra: MRF ID
+    String(mrf._id || ''),           // MRF ID
+    mrf.mrfStatus            || '',  // MRF Status
+    mrf.designation          || '',  // Designation
+    mrf.department           || '',  // Department
+    mrf.section              || '',  // Section
+    mrf.location             || '',  // Vacancy Location
+    mrf.noOfPositions        ?? '',  // Number of Vacancies
+    mrf.requirementType      || '',  // Requirement Type
+    mrf.experience           || '',  // Experience Required
+    mrf.proposedSalary       || '',  // Proposed Salary
+    mrf.levelOfUrgency       || '',  // Level of Urgency
+    mrf.reasonForRequest     || '',  // Vacancy Reason
+    mrf.replacementFor       || '',  // Replacement For
+    mrf.justification        || '',  // Justification
+    mrf.purposeOfJob         || '',  // Purpose of Job
+    mrf.rolesResponsibilities|| '',  // Roles & Responsibilities
+    mrf.minimumQualification || '',  // Minimum Qualification
+    mrf.otherKeySkills       || '',  // Other Key Skills
+    mrf.reportsTo            || '',  // Reports To
+    mrf.submittedBy          || '',  // Submitted By
+    mrf.approvedBy           || '',  // Approved By
+    fmt(mrf.approvedAt),             // Approved At
+    fmt(mrf.createdAt),              // Created At
+    mrf.specializations      || '',  // Specializations
+    mrf.ageRange             || '',  // Age Range
+    mrf.preferredIndustries  || '',  // Preferred Industries
+    mrf.itRequirements       || '',  // IT Requirements
   ];
 }
 
-// ── Ensure header row exists ─────────────────────────────────────────────────
-async function ensureHeaders(sheets, spreadsheetId) {
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'Sheet1!1:1',
-  });
-  const existing = (res.data.values || [])[0] || [];
-  if (existing.length === 0) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: 'Sheet1!A1',
-      valueInputOption: 'RAW',
-      requestBody: { values: [SHEET_HEADERS] },
+// ── Map an MRF document → row array for Recruitment Tracker Sheet ───────────
+function mrfToTrackerRow(mrf) {
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
+  return [
+    String(mrf._id || ''),           // MRF ID
+    mrf.designation          || '',  // Designation
+    mrf.department           || '',  // Department
+    mrf.location             || '',  // Vacancy Location
+    mrf.positionStatus       || '',  // Position Status
+    mrf.requirementStatus    || '',  // Requirement Status
+    mrf.offerStatus          || '',  // Offer Status
+    mrf.offeredCandidateName || '',  // Offered Candidate Name
+    mrf.offeredDesignation   || '',  // Offered Designation
+    fmt(mrf.offerDate),              // Offer Date
+    fmt(mrf.tentativeDOJ),           // Tentative DOJ
+    fmt(mrf.actualDOJ),              // Actual DOJ
+    mrf.tat                  ?? '',  // TAT (Days)
+    mrf.preEmploymentMedicalStatus || '', // pre employee medical status
+    mrf.sourceOfHiring       || '',  // Source of Hiring
+    mrf.internalRefName      || '',  // Internal Reference Name
+    mrf.minimumQualification || '',  // Qualification
+    mrf.lastOrganization     || '',  // Last Organization
+    mrf.candidateLocation    || '',  // Last Location
+    mrf.lastDesignation      || '',  // Last Designation
+    mrf.totalPreviousExp     || '',  // Total Experience (Years)
+    mrf.lastCTC              || '',  // Last CTC (LPA)
+    mrf.offeredCTC           || '',  // Offered CTC (LPA)
+    mrf.costOfCompany        || '',  // COC (LPA)
+    mrf.ctcDifferencePercent ?? '',  // CTC Difference (%)
+    mrf.recruitmentRemarks   || '',  // Recruitment Remarks
+    mrf.employeeName         || '',  // Exit Employee Name
+    mrf.employeeDesignation  || '',  // Exit Employee Designation
+    fmt(mrf.positionStartDate),      // Exit Date
+    mrf.additionalRemarks    || '',  // Additional Remarks
+  ];
+}
+
+// ── Ensure header row and sheets/tabs exist ─────────────────────────────────
+async function ensureSheetTabs(sheets, spreadsheetId) {
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetNames = (meta.data.sheets || []).map(s => s.properties.title);
+  
+  const requests = [];
+  if (!sheetNames.includes('Department Head MRF')) {
+    requests.push({
+      addSheet: {
+        properties: { title: 'Department Head MRF' }
+      }
     });
   }
+  if (!sheetNames.includes('Recruitment Tracker')) {
+    requests.push({
+      addSheet: {
+        properties: { title: 'Recruitment Tracker' }
+      }
+    });
+  }
+  
+  if (requests.length > 0) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests }
+    });
+  }
+  
+  // Ensure headers for Department Head MRF
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: "'Department Head MRF'!A1",
+    valueInputOption: 'RAW',
+    requestBody: { values: [DEPT_HEAD_MRF_HEADERS] },
+  });
+
+  // Ensure headers for Recruitment Tracker
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: "'Recruitment Tracker'!A1",
+    valueInputOption: 'RAW',
+    requestBody: { values: [RECRUITMENT_TRACKER_HEADERS] },
+  });
 }
 
 // ── PUBLIC API ───────────────────────────────────────────────────────────────
 
 /**
- * Append a new MRF row to the Google Sheet.
- * Returns the 1-based row index where it was written.
+ * Append a new MRF row to both Department Head MRF and Recruitment Tracker.
+ * Returns the HOD MRF sheet row index.
  */
 export async function appendMRFToSheet(mrf) {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
@@ -147,28 +234,52 @@ export async function appendMRFToSheet(mrf) {
   try {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: 'v4', auth });
-    await ensureHeaders(sheets, spreadsheetId);
+    await ensureSheetTabs(sheets, spreadsheetId);
 
-    const row = mrfToRow(mrf);
-    const result = await sheets.spreadsheets.values.append({
+    // 1. Append to Department Head MRF
+    const hodRow = mrfToHODRow(mrf);
+    const hodResult = await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: 'Sheet1!A:A',
+      range: "'Department Head MRF'!A:A",
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [row] },
+      requestBody: { values: [hodRow] },
     });
-    // updatedRange looks like "Sheet1!A5:AL5" — extract row number
-    const updatedRange = result.data.updates?.updatedRange || '';
-    const match = updatedRange.match(/!A(\d+)/);
-    const rowIndex = match ? parseInt(match[1]) : null;
-    console.log(`[Sheets] Appended MRF "${mrf.designation}" to row ${rowIndex}`);
-    return rowIndex;
+    const hodRange = hodResult.data.updates?.updatedRange || '';
+    const hodMatch = hodRange.match(/!A(\d+)/);
+    const hodRowIndex = hodMatch ? parseInt(hodMatch[1]) : null;
+
+    mrf.mrfSheetRowIndex = hodRowIndex;
+    mrf.sheetRowIndex = hodRowIndex; // Legacy fallback
+
+    // 2. Append to Recruitment Tracker
+    const trackerRow = mrfToTrackerRow(mrf);
+    const trackerResult = await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "'Recruitment Tracker'!A:A",
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [trackerRow] },
+    });
+    const trackerRange = trackerResult.data.updates?.updatedRange || '';
+    const trackerMatch = trackerRange.match(/!A(\d+)/);
+    const trackerRowIndex = trackerMatch ? parseInt(trackerMatch[1]) : null;
+
+    mrf.trackerSheetRowIndex = trackerRowIndex;
+
+    await mrf.save().catch(e => console.error('Failed to save sheet row indices:', e.message));
+
+    console.log(`[Sheets] Appended HOD row ${hodRowIndex} and Tracker row ${trackerRowIndex} for MRF "${mrf.designation}"`);
+    return hodRowIndex;
   } catch (err) {
     console.error('[Sheets] appendMRFToSheet failed:', err.message);
     return null;
   }
 }
 
+/**
+ * Update row values in both Department Head MRF and Recruitment Tracker.
+ */
 export async function updateMRFInSheet(mrf, rowIndex) {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
   if (!spreadsheetId) {
@@ -176,73 +287,147 @@ export async function updateMRFInSheet(mrf, rowIndex) {
     return;
   }
   try {
-    let targetRowIndex = rowIndex;
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+    await ensureSheetTabs(sheets, spreadsheetId);
 
-    // If rowIndex is not provided, try to find it by matching MRF ID in the sheet
-    if (!targetRowIndex) {
-      console.log(`[Sheets] rowIndex missing for MRF "${mrf.designation}". Searching by MRF ID...`);
-      const rows = await fetchAllFromSheet();
+    // 1. Update Department Head MRF sheet
+    let targetHODIndex = mrf.mrfSheetRowIndex || rowIndex;
+    if (!targetHODIndex) {
+      console.log(`[Sheets] HOD rowIndex missing for MRF "${mrf.designation}". Searching by MRF ID...`);
+      const rows = await fetchAllFromSheet('Department Head MRF');
       const match = rows.find(r => r['MRF ID'] === String(mrf._id));
       if (match) {
-        targetRowIndex = match._sheetRow;
-        console.log(`[Sheets] Found matching MRF ID in sheet at row ${targetRowIndex}`);
-        // Save back to DB
-        mrf.sheetRowIndex = targetRowIndex;
-        await mrf.save().catch(e => console.error('Failed to save sheetRowIndex:', e.message));
-      } else {
-        // Not found in sheet, let's append it!
-        console.log(`[Sheets] MRF not found in sheet. Appending as new row...`);
-        const newRowIndex = await appendMRFToSheet(mrf);
-        return newRowIndex;
+        targetHODIndex = match._sheetRow;
+        mrf.mrfSheetRowIndex = targetHODIndex;
+        mrf.sheetRowIndex = targetHODIndex;
       }
     }
 
-    const auth = getAuthClient();
-    const sheets = google.sheets({ version: 'v4', auth });
+    const hodRow = mrfToHODRow(mrf);
+    if (targetHODIndex) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'Department Head MRF'!A${targetHODIndex}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [hodRow] },
+      });
+      console.log(`[Sheets] Updated HOD row ${targetHODIndex} for MRF "${mrf.designation}"`);
+    } else {
+      console.log(`[Sheets] MRF not found in HOD sheet. Appending as new row...`);
+      const result = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: "'Department Head MRF'!A:A",
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [hodRow] },
+      });
+      const updatedRange = result.data.updates?.updatedRange || '';
+      const match = updatedRange.match(/!A(\d+)/);
+      if (match) {
+        mrf.mrfSheetRowIndex = parseInt(match[1]);
+        mrf.sheetRowIndex = parseInt(match[1]);
+      }
+    }
 
-    const row = mrfToRow(mrf);
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `Sheet1!A${targetRowIndex}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [row] },
-    });
-    console.log(`[Sheets] Updated row ${targetRowIndex} for MRF "${mrf.designation}"`);
+    // 2. Update Recruitment Tracker sheet
+    let targetTrackerIndex = mrf.trackerSheetRowIndex;
+    if (!targetTrackerIndex) {
+      console.log(`[Sheets] Tracker rowIndex missing for MRF "${mrf.designation}". Searching by MRF ID...`);
+      const rows = await fetchAllFromSheet('Recruitment Tracker');
+      const match = rows.find(r => r['MRF ID'] === String(mrf._id));
+      if (match) {
+        targetTrackerIndex = match._sheetRow;
+        mrf.trackerSheetRowIndex = targetTrackerIndex;
+      }
+    }
+
+    const trackerRow = mrfToTrackerRow(mrf);
+    if (targetTrackerIndex) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'Recruitment Tracker'!A${targetTrackerIndex}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [trackerRow] },
+      });
+      console.log(`[Sheets] Updated Tracker row ${targetTrackerIndex} for MRF "${mrf.designation}"`);
+    } else {
+      console.log(`[Sheets] MRF not found in Tracker sheet. Appending as new row...`);
+      const result = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: "'Recruitment Tracker'!A:A",
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [trackerRow] },
+      });
+      const updatedRange = result.data.updates?.updatedRange || '';
+      const match = updatedRange.match(/!A(\d+)/);
+      if (match) {
+        mrf.trackerSheetRowIndex = parseInt(match[1]);
+      }
+    }
+
+    await mrf.save().catch(e => console.error('Failed to save sheet row indices:', e.message));
   } catch (err) {
     console.error('[Sheets] updateMRFInSheet failed:', err.message);
   }
 }
 
-
 /**
- * Fetch all rows from Google Sheet (skipping header row).
- * Returns array of objects keyed by SHEET_HEADERS.
+ * Fetch rows from Google Sheet. If singleSheetName is supplied, returns simple array.
+ * Otherwise, returns { hodMrf: [...], recruitmentTracker: [...] }.
  */
-export async function fetchAllFromSheet() {
+export async function fetchAllFromSheet(singleSheetName = null) {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
   if (!spreadsheetId) {
     console.warn('[Sheets] GOOGLE_SHEET_ID not set');
-    return [];
+    return singleSheetName ? [] : { hodMrf: [], recruitmentTracker: [] };
   }
   try {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: 'v4', auth });
+    
+    if (singleSheetName) {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${singleSheetName}'!A1:AZ`,
+      });
+      const rows = res.data.values || [];
+      if (rows.length < 2) return [];
+      const headers = rows[0];
+      return rows.slice(1).map((row, i) => {
+        const obj = { _sheetRow: i + 2 };
+        headers.forEach((h, idx) => { obj[h] = row[idx] || ''; });
+        return obj;
+      });
+    }
 
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'Sheet1!A1:AZ',
-    });
-    const rows = res.data.values || [];
-    if (rows.length < 2) return [];
-
-    const headers = rows[0];
-    return rows.slice(1).map((row, i) => {
-      const obj = { _sheetRow: i + 2 }; // 1-based, +1 for header
-      headers.forEach((h, idx) => { obj[h] = row[idx] || ''; });
-      return obj;
-    });
+    await ensureSheetTabs(sheets, spreadsheetId);
+    
+    const [hodRes, trackerRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId, range: "'Department Head MRF'!A1:AZ" }),
+      sheets.spreadsheets.values.get({ spreadsheetId, range: "'Recruitment Tracker'!A1:AZ" })
+    ]);
+    
+    const hodRows = hodRes.data.values || [];
+    const trackerRows = trackerRes.data.values || [];
+    
+    const mapRows = (rows) => {
+      if (rows.length < 2) return [];
+      const headers = rows[0];
+      return rows.slice(1).map((row, i) => {
+        const obj = { _sheetRow: i + 2 };
+        headers.forEach((h, idx) => { obj[h] = row[idx] || ''; });
+        return obj;
+      });
+    };
+    
+    return {
+      hodMrf: mapRows(hodRows),
+      recruitmentTracker: mapRows(trackerRows)
+    };
   } catch (err) {
     console.error('[Sheets] fetchAllFromSheet failed:', err.message);
-    return [];
+    return singleSheetName ? [] : { hodMrf: [], recruitmentTracker: [] };
   }
 }
