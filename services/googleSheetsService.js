@@ -12,6 +12,7 @@ import { google } from 'googleapis';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import JobOpening from '../models/JobOpening.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -77,6 +78,31 @@ const RECRUITMENT_TRACKER_HEADERS = [
   'Exit Employee Designation',
   'Exit Date',
   'Additional Remarks'
+];
+
+const CANDIDATE_DETAILS_HEADERS = [
+  'Candidate ID',
+  'MRF ID',
+  'Job Designation',
+  'Department',
+  'Full Name',
+  'Email',
+  'Phone',
+  'Current Title',
+  'Total Experience',
+  'Highest Qualification',
+  'Skills',
+  'Current Location',
+  'Current Company',
+  'Current CTC',
+  'Expected CTC',
+  'Notice Period',
+  'Reason For Change',
+  'Match Score',
+  'Match Level',
+  'Overall Status',
+  'Applied Via',
+  'Applied At'
 ];
 
 // ── Auth helper ─────────────────────────────────────────────────────────────
@@ -194,6 +220,13 @@ async function ensureSheetTabs(sheets, spreadsheetId) {
       }
     });
   }
+  if (!sheetNames.includes('Candidate Details')) {
+    requests.push({
+      addSheet: {
+        properties: { title: 'Candidate Details' }
+      }
+    });
+  }
   
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
@@ -216,6 +249,14 @@ async function ensureSheetTabs(sheets, spreadsheetId) {
     range: "'Recruitment Tracker'!A1",
     valueInputOption: 'RAW',
     requestBody: { values: [RECRUITMENT_TRACKER_HEADERS] },
+  });
+
+  // Ensure headers for Candidate Details
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: "'Candidate Details'!A1",
+    valueInputOption: 'RAW',
+    requestBody: { values: [CANDIDATE_DETAILS_HEADERS] },
   });
 }
 
@@ -429,5 +470,139 @@ export async function fetchAllFromSheet(singleSheetName = null) {
   } catch (err) {
     console.error('[Sheets] fetchAllFromSheet failed:', err.message);
     return singleSheetName ? [] : { hodMrf: [], recruitmentTracker: [] };
+  }
+}
+
+// ── Candidate details row mapper ─────────────────────────────────────────────
+function candidateToRow(candidate, job) {
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
+  const d = candidate.details || {};
+  return [
+    String(candidate._id || ''),
+    String(candidate.jobOpeningId || ''),
+    job?.designation || '',
+    job?.department || '',
+    d.fullName || candidate.fileName || 'Unknown',
+    d.email || '',
+    d.phone || '',
+    d.currentTitle || '',
+    d.totalExp || '',
+    d.highestQual || '',
+    d.skills || '',
+    d.currentLocation || '',
+    d.currentCompany || '',
+    d.currentCtc || '',
+    d.expectedCtc || '',
+    d.noticePeriod || '',
+    d.reasonForChange || '',
+    candidate.matchScore ?? '',
+    candidate.matchLevel || '',
+    candidate.overallStatus || 'Applied',
+    candidate.appliedVia || 'apply_form',
+    fmt(candidate.createdAt),
+  ];
+}
+
+// ── Sync single candidate to Candidate Details tab ────────────────────────────
+export async function syncCandidateToSheet(candidate) {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) {
+    console.warn('[Sheets] GOOGLE_SHEET_ID not set — skipping candidate sync');
+    return;
+  }
+  try {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+    await ensureSheetTabs(sheets, spreadsheetId);
+
+    // Fetch the job opening to get designation and department
+    const job = await JobOpening.findById(candidate.jobOpeningId);
+
+    const d = candidate.details || {};
+    const row = candidateToRow(candidate, job);
+    
+    // Fetch column A of Candidate Details to find matching Candidate ID
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Candidate Details'!A:A",
+    });
+    const colA = res.data.values || [];
+    let foundIndex = -1;
+    for (let i = 1; i < colA.length; i++) {
+      if (colA[i] && colA[i][0] === String(candidate._id)) {
+        foundIndex = i + 1; // 1-based index
+        break;
+      }
+    }
+
+    if (foundIndex !== -1) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'Candidate Details'!A${foundIndex}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [row] },
+      });
+      console.log(`[Sheets] Updated candidate row ${foundIndex} for "${d.fullName || candidate.fileName}"`);
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: "'Candidate Details'!A:A",
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [row] },
+      });
+      console.log(`[Sheets] Appended candidate "${d.fullName || candidate.fileName}" to Candidate Details`);
+    }
+  } catch (err) {
+    console.error('[Sheets] syncCandidateToSheet failed:', err.message);
+  }
+}
+
+// ── Delete candidate row from Candidate Details tab ──────────────────────────
+export async function deleteCandidateFromSheet(candidateId) {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return;
+  try {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+    
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Candidate Details'!A:A",
+    });
+    const colA = res.data.values || [];
+    let foundIndex = -1;
+    for (let i = 1; i < colA.length; i++) {
+      if (colA[i] && colA[i][0] === String(candidateId)) {
+        foundIndex = i + 1;
+        break;
+      }
+    }
+
+    if (foundIndex !== -1) {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId });
+      const candSheet = (meta.data.sheets || []).find(s => s.properties.title === 'Candidate Details');
+      if (candSheet) {
+        const sheetId = candSheet.properties.sheetId;
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId,
+                  dimension: 'ROWS',
+                  startIndex: foundIndex - 1,
+                  endIndex: foundIndex,
+                }
+              }
+            }]
+          }
+        });
+        console.log(`[Sheets] Deleted candidate row ${foundIndex} for ID ${candidateId}`);
+      }
+    }
+  } catch (err) {
+    console.error('[Sheets] deleteCandidateFromSheet failed:', err.message);
   }
 }
