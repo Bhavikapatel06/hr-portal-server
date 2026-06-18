@@ -407,6 +407,42 @@ router.put('/candidates/:id/details', async (req, res) => {
       });
     }
 
+    // Notify Department Head if candidate is sent for approval
+    if (statusChanged && candidate.overallStatus === 'Pending Head Approval') {
+      const msg = `Candidate ${candidate.details.fullName} is awaiting your approval for ${opening ? opening.designation : 'the job'}.`;
+      await Notification.create({
+        recipientRole: 'department_head',
+        title: 'Candidate Awaiting Approval',
+        message: msg,
+        type: 'CANDIDATE_APPROVAL_REQUEST',
+        link: `/recruitment/candidate/${candidate._id}`
+      });
+    }
+
+    // Notify HR if candidate is approved by Head
+    if (statusChanged && candidate.overallStatus === 'Approved by Head') {
+      const msg = `Candidate ${candidate.details.fullName} has been approved by the Department Head for ${opening ? opening.designation : 'the job'}. You can now schedule an interview.`;
+      await Notification.create({
+        recipientRole: 'hr',
+        title: 'Candidate Approved by Head',
+        message: msg,
+        type: 'CANDIDATE_APPROVED_BY_HEAD',
+        link: `/recruitment/job/${opening ? opening._id : ''}`
+      });
+    }
+
+    // Notify HR if candidate is rejected by Head
+    if (statusChanged && oldStatus === 'Pending Head Approval' && candidate.overallStatus === 'Rejected') {
+      const msg = `Candidate ${candidate.details.fullName} was rejected by the Department Head for ${opening ? opening.designation : 'the job'}.`;
+      await Notification.create({
+        recipientRole: 'hr',
+        title: 'Candidate Rejected by Head',
+        message: msg,
+        type: 'CANDIDATE_REJECTED_BY_HEAD',
+        link: `/recruitment/job/${opening ? opening._id : ''}`
+      });
+    }
+
     // Notify HR and Dept Head if hired
     if (statusChanged && (candidate.overallStatus === 'Offer' || candidate.overallStatus === 'Joined')) {
       const msg = candidate.overallStatus === 'Joined' 
@@ -475,7 +511,7 @@ router.put('/candidates/:id/interview', async (req, res) => {
     };
 
     // Move stage to Interview when scheduled
-    if (candidate.overallStatus === 'Applied' || candidate.overallStatus === 'Screening' || candidate.overallStatus === 'new') {
+    if (candidate.overallStatus === 'Applied' || candidate.overallStatus === 'Screening' || candidate.overallStatus === 'new' || candidate.overallStatus === 'Approved by Head') {
       candidate.overallStatus = 'Interview';
     }
 
