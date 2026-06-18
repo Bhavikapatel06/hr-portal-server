@@ -34,7 +34,7 @@ const candidateSchema = new mongoose.Schema({
   },
   overallStatus: {
     type: String,
-    enum: ['Applied', 'Screening', 'Interview', 'Offer', 'Joined', 'Rejected', 'new', 'shortlisted', 'scheduled', 'selected', 'on_hold'],
+    enum: ['Applied', 'Screening', 'Interview', 'Offer', 'Joined', 'Rejected', 'new', 'shortlisted', 'scheduled', 'selected', 'on_hold', 'Pending Head Approval', 'Approved by Head'],
     default: 'Applied',
   },
   interview: {
@@ -59,6 +59,26 @@ const candidateSchema = new mongoose.Schema({
 
 candidateSchema.set('toJSON',   { virtuals: true });
 candidateSchema.set('toObject', { virtuals: true });
+
+candidateSchema.post('save', async function(doc) {
+  try {
+    const { syncCandidateToSheet } = await import('../services/googleSheetsService.js');
+    await syncCandidateToSheet(doc);
+  } catch (err) {
+    console.error('[Mongoose Hook] Failed to sync candidate to Google Sheets:', err);
+  }
+});
+
+candidateSchema.post('findOneAndDelete', async function(doc) {
+  if (doc) {
+    try {
+      const { deleteCandidateFromSheet } = await import('../services/googleSheetsService.js');
+      await deleteCandidateFromSheet(doc._id);
+    } catch (err) {
+      console.error('[Mongoose Hook] Failed to delete candidate from Google Sheets:', err);
+    }
+  }
+});
 
 const Candidate = mongoose.model('Candidate', candidateSchema);
 export default Candidate;
