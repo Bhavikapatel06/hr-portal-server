@@ -98,6 +98,16 @@ const jobOpeningSchema = new mongoose.Schema({
   // ── Company Name (col 36) ───────────────────────────────────────────────
   companyName:          { type: String, default: '' },
 
+  // ── Match Score Weights ──────────────────────────────────────────────────
+  matchWeights: {
+    skills: { type: Number, default: 45 },
+    experience: { type: Number, default: 25 },
+    projectSimilarity: { type: Number, default: 0 },
+    education: { type: Number, default: 15 },
+    certification: { type: Number, default: 0 },
+    location: { type: Number, default: 15 }
+  },
+
   // ── Sheet Row tracking ──────────────────────────────────────────────────
   sheetRowIndex:        { type: Number, default: null }, // row # in Google Sheet (legacy/default)
   mrfSheetRowIndex:     { type: Number, default: null }, // row # in Department Head MRF sheet
