@@ -58,6 +58,24 @@ router.patch('/read-all', protect, async (req, res) => {
   }
 });
 
+// DELETE /api/notifications/clear-all
+// Clear all notifications for the user
+router.delete('/clear-all', protect, async (req, res) => {
+  try {
+    const filter = {
+      $or: [
+        { recipientEmail: req.user.email },
+        { recipientRole: req.user.role }
+      ]
+    };
+    await Notification.deleteMany(filter);
+    res.json({ message: 'All notifications cleared' });
+  } catch (error) {
+    console.error('Error clearing notifications:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // DELETE /api/notifications/:id
 // Delete a specific notification
 router.delete('/:id', protect, async (req, res) => {

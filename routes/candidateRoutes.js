@@ -100,6 +100,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
       title: 'New Candidates Applied',
       message: `${candidates.length} new candidate(s) added for ${opening.designation}.`,
       type: 'CANDIDATE_APPLIED',
+      link: `/recruitment/job/${opening._id}`
     });
     if (highMatches > 0) {
       await Notification.create({
@@ -107,6 +108,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
         title: 'High Match Candidates',
         message: `${highMatches} candidate(s) match the job requirements (>80%) for ${opening.designation}.`,
         type: 'HIGH_MATCH_CANDIDATE',
+        link: `/recruitment/job/${opening._id}`
       });
     }
 
@@ -219,6 +221,7 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
       title: 'New Candidate Applied',
       message: `A new candidate applied for ${opening.designation}.`,
       type: 'CANDIDATE_APPLIED',
+      link: `/recruitment/job/${opening._id}`
     });
 
     if (match.score > 80) {
@@ -227,6 +230,7 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
         title: 'High Match Candidate',
         message: `A candidate matching the job requirements (>80%) applied for ${opening.designation}.`,
         type: 'HIGH_MATCH_CANDIDATE',
+        link: `/recruitment/job/${opening._id}`
       });
     }
 
@@ -403,7 +407,7 @@ router.put('/candidates/:id/details', async (req, res) => {
         title: 'Application Status Updated',
         message: `Your application status for ${opening ? opening.designation : 'the job'} has been updated to ${candidate.overallStatus}.`,
         type: 'STATUS_UPDATE',
-        link: '/candidate-status'
+        link: '/status'
       });
     }
 
@@ -448,8 +452,8 @@ router.put('/candidates/:id/details', async (req, res) => {
       const msg = candidate.overallStatus === 'Joined' 
         ? `Candidate ${candidate.details.fullName} selected for ${opening.designation}. Job posting closed.`
         : `Candidate ${candidate.details.fullName} was offered the ${opening.designation} role.`;
-      await Notification.create({ recipientRole: 'admin', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED' });
-      await Notification.create({ recipientRole: 'department_head', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED' });
+      await Notification.create({ recipientRole: 'admin', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED', link: '/dashboard' });
+      await Notification.create({ recipientRole: 'department_head', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED', link: '/my-mrfs' });
     }
     
     // Return flattened object for frontend
@@ -524,7 +528,7 @@ router.put('/candidates/:id/interview', async (req, res) => {
         title: 'Interview Scheduled',
         message: `An interview has been scheduled for your application${dateStr}.`,
         type: 'INTERVIEW_SCHEDULED',
-        link: '/candidate-status'
+        link: '/status'
       });
     }
 
