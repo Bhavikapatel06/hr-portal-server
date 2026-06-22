@@ -149,25 +149,49 @@ export function scoreCandidate(candidateDetails, requirements) {
 
   const skills = scoreSkills(candidateDetails, requirements);
   const experience = scoreExperience(candidateDetails, requirements);
-  const qualification = scoreQualification(candidateDetails, requirements);
-  const jobTitle = scoreJobTitle(candidateDetails, requirements);
+  const education = scoreQualification(candidateDetails, requirements);
+  
+  // New metrics, if not calculated, default to 50 or based on requirement
+  // Since we don't have deep logic for these yet, we'll assign a moderate score or 0 based on available data
+  const projectSimilarity = 50; 
+  const certification = 50;
+  
+  // Location match: if they match, 100, else 0
+  const reqLoc = (requirements.location || '').toLowerCase();
+  const candLoc = (candidateDetails.currentLocation || '').toLowerCase();
+  let location = 50;
+  if (reqLoc && candLoc) {
+    location = candLoc.includes(reqLoc) || reqLoc.includes(candLoc) ? 100 : 0;
+  }
+
+  // Use custom weights if provided, else defaults
+  const weights = requirements.matchWeights || {
+    skills: 45,
+    experience: 25,
+    projectSimilarity: 0,
+    education: 15,
+    certification: 0,
+    location: 15
+  };
 
   let score = Math.round(
-    skills * 0.45 +
-    experience * 0.25 +
-    qualification * 0.15 +
-    jobTitle * 0.15
+    skills * (weights.skills / 100) +
+    experience * (weights.experience / 100) +
+    education * (weights.education / 100) +
+    projectSimilarity * (weights.projectSimilarity / 100) +
+    certification * (weights.certification / 100) +
+    location * (weights.location / 100)
   );
 
   // Critical Penalty: If required skills are specified but candidate matches 0 of them
-  if (requirements.otherKeySkills && skills === 0) {
+  if (requirements.otherKeySkills && skills === 0 && weights.skills > 0) {
     score = Math.round(score * 0.4); // Cut score by 60%
   }
 
   return {
     score,
     matchLevel: getMatchLevel(score),
-    breakdown: { skills, experience, qualification, jobTitle },
+    breakdown: { skills, experience, education, projectSimilarity, certification, location },
   };
 }
 

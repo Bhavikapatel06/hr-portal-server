@@ -29,8 +29,10 @@ const candidateSchema = new mongoose.Schema({
   matchBreakdown: {
     skills:        { type: Number, default: 0 },
     experience:    { type: Number, default: 0 },
-    qualification: { type: Number, default: 0 },
-    jobTitle:      { type: Number, default: 0 },
+    education:     { type: Number, default: 0 },
+    projectSimilarity: { type: Number, default: 0 },
+    certification: { type: Number, default: 0 },
+    location:      { type: Number, default: 0 },
   },
   overallStatus: {
     type: String,
