@@ -20,6 +20,10 @@ const jobOpeningSchema = new mongoose.Schema({
   otherKeySkills:       { type: String, default: '' },
   reportsTo:            { type: String, default: '' },
   processOwnerName:     { type: String, default: '' },          // col 10
+  specializations:      { type: String, default: '' },
+  ageRange:             { type: String, default: '' },
+  preferredIndustries:  { type: String, default: '' },
+  itRequirements:       { type: String, default: '' },
 
   requestType: { type: String, enum: ['MRF', 'JD'], default: 'MRF' },
 
@@ -95,7 +99,9 @@ const jobOpeningSchema = new mongoose.Schema({
   companyName:          { type: String, default: '' },
 
   // ── Sheet Row tracking ──────────────────────────────────────────────────
-  sheetRowIndex:        { type: Number, default: null }, // row # in Google Sheet
+  sheetRowIndex:        { type: Number, default: null }, // row # in Google Sheet (legacy/default)
+  mrfSheetRowIndex:     { type: Number, default: null }, // row # in Department Head MRF sheet
+  trackerSheetRowIndex: { type: Number, default: null }, // row # in Recruitment Tracker sheet
 
   createdAt: { type: Date, default: Date.now },
   closedAt:  { type: Date, default: null },
