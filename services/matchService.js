@@ -149,49 +149,25 @@ export function scoreCandidate(candidateDetails, requirements) {
 
   const skills = scoreSkills(candidateDetails, requirements);
   const experience = scoreExperience(candidateDetails, requirements);
-  const education = scoreQualification(candidateDetails, requirements);
-  
-  // New metrics, if not calculated, default to 50 or based on requirement
-  // Since we don't have deep logic for these yet, we'll assign a moderate score or 0 based on available data
-  const projectSimilarity = 50; 
-  const certification = 50;
-  
-  // Location match: if they match, 100, else 0
-  const reqLoc = (requirements.location || '').toLowerCase();
-  const candLoc = (candidateDetails.currentLocation || '').toLowerCase();
-  let location = 50;
-  if (reqLoc && candLoc) {
-    location = candLoc.includes(reqLoc) || reqLoc.includes(candLoc) ? 100 : 0;
-  }
-
-  // Use custom weights if provided, else defaults
-  const weights = requirements.matchWeights || {
-    skills: 45,
-    experience: 25,
-    projectSimilarity: 0,
-    education: 15,
-    certification: 0,
-    location: 15
-  };
+  const qualification = scoreQualification(candidateDetails, requirements);
+  const jobTitle = scoreJobTitle(candidateDetails, requirements);
 
   let score = Math.round(
-    skills * (weights.skills / 100) +
-    experience * (weights.experience / 100) +
-    education * (weights.education / 100) +
-    projectSimilarity * (weights.projectSimilarity / 100) +
-    certification * (weights.certification / 100) +
-    location * (weights.location / 100)
+    skills * 0.45 +
+    experience * 0.25 +
+    qualification * 0.15 +
+    jobTitle * 0.15
   );
 
   // Critical Penalty: If required skills are specified but candidate matches 0 of them
-  if (requirements.otherKeySkills && skills === 0 && weights.skills > 0) {
+  if (requirements.otherKeySkills && skills === 0) {
     score = Math.round(score * 0.4); // Cut score by 60%
   }
 
   return {
     score,
     matchLevel: getMatchLevel(score),
-    breakdown: { skills, experience, education, projectSimilarity, certification, location },
+    breakdown: { skills, experience, qualification, jobTitle },
   };
 }
 
@@ -208,8 +184,8 @@ export function rankCandidates(candidates, requirements) {
 }
 
 export const MATCH_COLORS = {
-  Strong:  { text: 'text-emerald-400', bg: 'bg-emerald-400/15', border: 'border-emerald-400/30', ring: '#34d399' },
-  Good:    { text: 'text-accent',      bg: 'bg-accent/15',      border: 'border-accent/30',      ring: '#4F8EF7' },
-  Partial: { text: 'text-gold',        bg: 'bg-gold/15',        border: 'border-gold/30',        ring: '#F5A623' },
-  Low:     { text: 'text-slate-400',   bg: 'bg-slate-400/15',   border: 'border-slate-400/25',   ring: '#94a3b8' },
+  Strong: { text: 'text-emerald-400', bg: 'bg-emerald-400/15', border: 'border-emerald-400/30', ring: '#34d399' },
+  Good: { text: 'text-accent', bg: 'bg-accent/15', border: 'border-accent/30', ring: '#4F8EF7' },
+  Partial: { text: 'text-gold', bg: 'bg-gold/15', border: 'border-gold/30', ring: '#F5A623' },
+  Low: { text: 'text-slate-400', bg: 'bg-slate-400/15', border: 'border-slate-400/25', ring: '#94a3b8' },
 };
