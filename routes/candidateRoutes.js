@@ -568,6 +568,83 @@ router.put('/candidates/:id/feedback', async (req, res) => {
   }
 });
 
+// ── GET /candidates/download-all — global FIFO CSV across all openings ─────
+// MUST be before /candidates/:id to prevent 'download-all' being treated as ObjectId
+router.get('/candidates/download-all', async (req, res) => {
+  try {
+    // FIFO: oldest application first
+    const candidates = await Candidate.find()
+      .populate('jobOpeningId')
+      .sort({ createdAt: 1 });
+
+    const STATUS_MAP = {
+      new: 'New', shortlisted: 'Shortlisted', scheduled: 'Scheduled',
+      selected: 'Selected', rejected: 'Rejected', on_hold: 'On Hold',
+    };
+
+    const HEADERS = [
+      'Sr. No', 'Candidate Name', 'Contact No', 'Alternate Number', 'Mail ID',
+      'Current Opening', 'Department', 'Job Location', 'Qualification', 'Total Experience',
+      'Current Location', 'Current Company', 'Current CTC', 'Expected CTC', 'Notice Period',
+      'Reason For Change', 'Candidate Status', 'Remarks',
+    ];
+
+    const escapeCell = (val) => {
+      const str = String(val === null || val === undefined ? '' : val).replace(/"/g, '""');
+      return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
+    };
+
+    const rows = candidates.map((c, i) => {
+      const d = c.details || {};
+      const jo = c.jobOpeningId || {};
+      return [
+        i + 1,
+        d.fullName || '',
+        d.phone || '',
+        d.alternatePhone || '',
+        d.email || '',
+        (typeof jo === 'object' ? jo.designation : '') || '',
+        (typeof jo === 'object' ? jo.department : '') || '',
+        (typeof jo === 'object' ? jo.location : '') || '',
+        d.highestQual || '',
+        d.totalExp || '',
+        d.currentLocation || '',
+        d.currentCompany || '',
+        d.currentCtc || '',
+        d.expectedCtc || '',
+        d.noticePeriod || '',
+        d.reasonForChange || '',
+        STATUS_MAP[c.overallStatus] || c.overallStatus || 'New',
+        d.notes || '',
+      ].map(escapeCell).join(',');
+    });
+
+    const csv = [HEADERS.map(escapeCell).join(','), ...rows].join('\n');
+    const now = new Date().toISOString().slice(0, 10);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="All-Candidates-${now}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Error generating all-candidates CSV:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── GET /candidates/status/:email — get status for all applications by email ──
+// MUST be before /candidates/:id to prevent 'status' being treated as ObjectId
+router.get('/candidates/status/:email', async (req, res) => {
+  try {
+    const candidates = await Candidate.find({ 'details.email': req.params.email })
+      .populate('jobOpeningId')
+      .sort({ createdAt: -1 });
+    res.json(candidates);
+  } catch (error) {
+    console.error('Error retrieving candidates by email:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ── GET /candidates/:id — get single candidate with populated job details ──
 router.get('/candidates/:id', async (req, res) => {
   try {
@@ -640,81 +717,6 @@ router.get('/candidates', async (req, res) => {
     res.json(mapped);
   } catch (error) {
     console.error('Error retrieving all candidates:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// ── GET /candidates/download-all — global FIFO CSV across all openings ─────
-router.get('/candidates/download-all', async (req, res) => {
-  try {
-    // FIFO: oldest application first
-    const candidates = await Candidate.find()
-      .populate('jobOpeningId')
-      .sort({ createdAt: 1 });
-
-    const STATUS_MAP = {
-      new: 'New', shortlisted: 'Shortlisted', scheduled: 'Scheduled',
-      selected: 'Selected', rejected: 'Rejected', on_hold: 'On Hold',
-    };
-
-    const HEADERS = [
-      'Sr. No', 'Candidate Name', 'Contact No', 'Alternate Number', 'Mail ID',
-      'Current Opening', 'Department', 'Job Location', 'Qualification', 'Total Experience',
-      'Current Location', 'Current Company', 'Current CTC', 'Expected CTC', 'Notice Period',
-      'Reason For Change', 'Candidate Status', 'Remarks',
-    ];
-
-    const escapeCell = (val) => {
-      const str = String(val === null || val === undefined ? '' : val).replace(/"/g, '""');
-      return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
-    };
-
-    const rows = candidates.map((c, i) => {
-      const d = c.details || {};
-      const jo = c.jobOpeningId || {};
-      return [
-        i + 1,
-        d.fullName || '',
-        d.phone || '',
-        d.alternatePhone || '',
-        d.email || '',
-        (typeof jo === 'object' ? jo.designation : '') || '',
-        (typeof jo === 'object' ? jo.department : '') || '',
-        (typeof jo === 'object' ? jo.location : '') || '',
-        d.highestQual || '',
-        d.totalExp || '',
-        d.currentLocation || '',
-        d.currentCompany || '',
-        d.currentCtc || '',
-        d.expectedCtc || '',
-        d.noticePeriod || '',
-        d.reasonForChange || '',
-        STATUS_MAP[c.overallStatus] || c.overallStatus || 'New',
-        d.notes || '',
-      ].map(escapeCell).join(',');
-    });
-
-    const csv = [HEADERS.map(escapeCell).join(','), ...rows].join('\n');
-    const now = new Date().toISOString().slice(0, 10);
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="All-Candidates-${now}.csv"`);
-    res.send(csv);
-  } catch (error) {
-    console.error('Error generating all-candidates CSV:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// ── GET /candidates/status/:email — get status for all applications by email ──
-router.get('/candidates/status/:email', async (req, res) => {
-  try {
-    const candidates = await Candidate.find({ 'details.email': req.params.email })
-      .populate('jobOpeningId')
-      .sort({ createdAt: -1 });
-    res.json(candidates);
-  } catch (error) {
-    console.error('Error retrieving candidates by email:', error);
     res.status(500).json({ message: error.message });
   }
 });
