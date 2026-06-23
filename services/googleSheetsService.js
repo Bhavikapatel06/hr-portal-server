@@ -445,13 +445,15 @@ export async function fetchAllFromSheet(singleSheetName = null) {
 
     await ensureSheetTabs(sheets, spreadsheetId);
     
-    const [hodRes, trackerRes] = await Promise.all([
+    const [hodRes, trackerRes, candidateRes] = await Promise.all([
       sheets.spreadsheets.values.get({ spreadsheetId, range: "'Department Head MRF'!A1:AZ" }),
-      sheets.spreadsheets.values.get({ spreadsheetId, range: "'Recruitment Tracker'!A1:AZ" })
+      sheets.spreadsheets.values.get({ spreadsheetId, range: "'Recruitment Tracker'!A1:AZ" }),
+      sheets.spreadsheets.values.get({ spreadsheetId, range: "'Candidate Details'!A1:AZ" })
     ]);
     
     const hodRows = hodRes.data.values || [];
     const trackerRows = trackerRes.data.values || [];
+    const candidateRows = candidateRes.data.values || [];
     
     const mapRows = (rows) => {
       if (rows.length < 2) return [];
@@ -465,11 +467,12 @@ export async function fetchAllFromSheet(singleSheetName = null) {
     
     return {
       hodMrf: mapRows(hodRows),
-      recruitmentTracker: mapRows(trackerRows)
+      recruitmentTracker: mapRows(trackerRows),
+      candidateDetails: mapRows(candidateRows)
     };
   } catch (err) {
     console.error('[Sheets] fetchAllFromSheet failed:', err.message);
-    return singleSheetName ? [] : { hodMrf: [], recruitmentTracker: [] };
+    return singleSheetName ? [] : { hodMrf: [], recruitmentTracker: [], candidateDetails: [] };
   }
 }
 
