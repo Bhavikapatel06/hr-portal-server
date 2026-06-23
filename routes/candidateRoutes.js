@@ -19,7 +19,7 @@ if (!fs.existsSync(uploadDir)) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
-  filename:    (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 const upload = multer({ storage });
 
@@ -39,11 +39,11 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
         try {
           const fileBuffer = fs.readFileSync(file.path);
           const requirements = {
-            designation:          opening.designation,
-            department:           opening.department,
-            experience:           opening.experience,
+            designation: opening.designation,
+            department: opening.department,
+            experience: opening.experience,
             minimumQualification: opening.minimumQualification,
-            otherKeySkills:       opening.otherKeySkills,
+            otherKeySkills: opening.otherKeySkills,
           };
 
           const parsed = await parseResume(fileBuffer, file.originalname, file.mimetype, requirements);
@@ -58,14 +58,14 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
 
           const candidate = new Candidate({
             jobOpeningId,
-            appliedVia:   'resume_upload',
-            fileName:     file.originalname,
-            filePath:     file.path,
-            fileSize:     file.size,
-            parseStatus:  parsed.status,
-            details:      parsed.details,
-            matchScore:   match.score,
-            matchLevel:   match.matchLevel,
+            appliedVia: 'resume_upload',
+            fileName: file.originalname,
+            filePath: file.path,
+            fileSize: file.size,
+            parseStatus: parsed.status,
+            details: parsed.details,
+            matchScore: match.score,
+            matchLevel: match.matchLevel,
             matchBreakdown: match.breakdown,
             overallStatus: 'new',
           });
@@ -77,14 +77,14 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
           console.error(`Error parsing file ${file.originalname}:`, fileError);
           const candidate = new Candidate({
             jobOpeningId,
-            appliedVia:   'resume_upload',
-            fileName:     file.originalname,
-            filePath:     file.path,
-            fileSize:     file.size,
-            parseStatus:  'failed',
-            details:      { fullName: file.originalname, notes: `Parsing failed: ${fileError.message}` },
-            matchScore:   0,
-            matchLevel:   'Low',
+            appliedVia: 'resume_upload',
+            fileName: file.originalname,
+            filePath: file.path,
+            fileSize: file.size,
+            parseStatus: 'failed',
+            details: { fullName: file.originalname, notes: `Parsing failed: ${fileError.message}` },
+            matchScore: 0,
+            matchLevel: 'Low',
             overallStatus: 'new',
           });
           await candidate.save();
@@ -95,7 +95,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
     }
 
     const allCandidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
-    
+
     // Notifications for HR Manager
     let highMatches = candidates.filter(c => c.matchScore > 80).length;
     await Notification.create({
@@ -103,6 +103,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
       title: 'New Candidates Applied',
       message: `${candidates.length} new candidate(s) added for ${opening.designation}.`,
       type: 'CANDIDATE_APPLIED',
+      link: `/recruitment/job/${opening._id}`
     });
     if (highMatches > 0) {
       await Notification.create({
@@ -110,6 +111,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
         title: 'High Match Candidates',
         message: `${highMatches} candidate(s) match the job requirements (>80%) for ${opening.designation}.`,
         type: 'HIGH_MATCH_CANDIDATE',
+        link: `/recruitment/job/${opening._id}`
       });
     }
 
@@ -172,29 +174,29 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
     if (!fullName?.trim()) return res.status(400).json({ message: 'Candidate name is required' });
 
     const requirements = {
-      designation:          opening.designation,
-      department:           opening.department,
-      experience:           opening.experience,
-      minimumQualification: opening.minimumQualification,
-      otherKeySkills:       opening.otherKeySkills,
+      designation: opening.designation,
+      department: opening.department,
+      experience: opening.experience,
+      minimumQualification: opening.minbbimumQualification,
+      otherKeySkills: opening.otherKeySkills,
     };
 
     const details = {
       fullName: fullName.trim(),
-      email:           email           || '',
-      phone:           phone           || '',
-      alternatePhone:  alternatePhone  || '',
-      currentTitle:    currentTitle    || opening.designation,
-      totalExp:        totalExp        || '',
-      highestQual:     highestQual     || '',
-      skills:          skills          || '',
+      email: email || '',
+      phone: phone || '',
+      alternatePhone: alternatePhone || '',
+      currentTitle: currentTitle || opening.designation,
+      totalExp: totalExp || '',
+      highestQual: highestQual || '',
+      skills: skills || '',
       currentLocation: currentLocation || '',
-      currentCompany:  currentCompany  || '',
-      currentCtc:      currentCtc      || '',
-      expectedCtc:     expectedCtc     || '',
-      noticePeriod:    noticePeriod    || '',
+      currentCompany: currentCompany || '',
+      currentCtc: currentCtc || '',
+      expectedCtc: expectedCtc || '',
+      noticePeriod: noticePeriod || '',
       reasonForChange: reasonForChange || '',
-      notes:           notes           || '',
+      notes: notes || '',
     };
 
     const combined = { ...details, notes: `${details.skills || ''} ${details.notes || ''}` };
@@ -202,16 +204,16 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
 
     const candidate = new Candidate({
       jobOpeningId,
-      appliedVia:   filePath ? 'resume_upload' : 'apply_form',
-      fileName:     fileName || '',
-      filePath:     filePath || '',
-      fileSize:     fileSize || 0,
-      parseStatus:  'parsed',
+      appliedVia: filePath ? 'resume_upload' : 'apply_form',
+      fileName: fileName || '',
+      filePath: filePath || '',
+      fileSize: fileSize || 0,
+      parseStatus: 'parsed',
       details,
-      matchScore:   match.score,
-      matchLevel:   match.matchLevel,
+      matchScore: match.score,
+      matchLevel: match.matchLevel,
       matchBreakdown: match.breakdown,
-      overallStatus:  'new',
+      overallStatus: 'new',
     });
 
     await candidate.save();
@@ -223,6 +225,7 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
       title: 'New Candidate Applied',
       message: `A new candidate applied for ${opening.designation}.`,
       type: 'CANDIDATE_APPLIED',
+      link: `/recruitment/job/${opening._id}`
     });
 
     if (match.score > 80) {
@@ -231,6 +234,7 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
         title: 'High Match Candidate',
         message: `A candidate matching the job requirements (>80%) applied for ${opening.designation}.`,
         type: 'HIGH_MATCH_CANDIDATE',
+        link: `/recruitment/job/${opening._id}`
       });
     }
 
@@ -247,7 +251,7 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
     const opening = await JobOpening.findById(req.params.jobOpeningId);
     if (!opening) return res.status(404).json({ message: 'Job opening not found' });
     const candidates = await Candidate.find({ jobOpeningId: req.params.jobOpeningId }).sort({ matchScore: -1 });
-    
+
     // Flatten details + map overallStatus to stage for frontend
     const mapped = candidates.map(c => {
       const obj = c.toJSON();
@@ -255,31 +259,31 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
       return {
         ...obj,
         // Flatten details to top-level fields expected by frontend
-        name:                 d.fullName         || obj.fileName || 'Unknown',
-        email:                d.email            || '',
-        phone:                d.phone            || '',
-        currentDesignation:   d.currentTitle     || '',
-        currentOrganization:  d.currentCompany   || '',
-        experience:           d.totalExp         || '',
-        currentCTC:           d.currentCtc       || '',
-        expectedCTC:          d.expectedCtc      || '',
-        noticePeriod:         d.noticePeriod     || '',
-        qualification:        d.highestQual      || '',
-        skills:               d.skills           || '',
-        currentLocation:      d.currentLocation  || '',
-        hrNotes:              d.notes            || '',
+        name: d.fullName || obj.fileName || 'Unknown',
+        email: d.email || '',
+        phone: d.phone || '',
+        currentDesignation: d.currentTitle || '',
+        currentOrganization: d.currentCompany || '',
+        experience: d.totalExp || '',
+        currentCTC: d.currentCtc || '',
+        expectedCTC: d.expectedCtc || '',
+        noticePeriod: d.noticePeriod || '',
+        qualification: d.highestQual || '',
+        skills: d.skills || '',
+        currentLocation: d.currentLocation || '',
+        hrNotes: d.notes || '',
         // Map interview fields
-        interviewDate:        obj.interview?.date          || '',
-        interviewTime:        obj.interview?.time          || '',
-        interviewMode:        obj.interview?.mode === 'online' ? 'Video Call' : 'In-Person',
-        interviewLocation:    obj.interview?.venue         || '',
-        interviewNotes:       obj.interview?.notes         || '',
-        interviewRound:       obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
-        interviewStatus:      obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
+        interviewDate: obj.interview?.date || '',
+        interviewTime: obj.interview?.time || '',
+        interviewMode: obj.interview?.mode === 'online' ? 'Video Call' : 'In-Person',
+        interviewLocation: obj.interview?.venue || '',
+        interviewNotes: obj.interview?.notes || '',
+        interviewRound: obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
+        interviewStatus: obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
         // Map resume url
-        resumeUrl:            obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
+        resumeUrl: obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
         // Map stage
-        stage:                obj.overallStatus || 'Applied',
+        stage: obj.overallStatus || 'Applied',
       };
     });
 
@@ -317,7 +321,7 @@ router.put('/candidates/:id/details', async (req, res) => {
 
     let statusChanged = false;
     let oldStatus = candidate.overallStatus;
-    
+
     // Extract stage if sent from frontend
     if (req.body.stage && req.body.stage !== candidate.overallStatus) {
       candidate.overallStatus = req.body.stage;
@@ -329,18 +333,18 @@ router.put('/candidates/:id/details', async (req, res) => {
 
     // Map flat frontend field names to nested details fields
     const fieldMap = {
-      name:                 'fullName',
-      email:                'email',
-      phone:                'phone',
-      currentDesignation:   'currentTitle',
-      currentOrganization:  'currentCompany',
-      experience:           'totalExp',
-      currentCTC:           'currentCtc',
-      expectedCTC:          'expectedCtc',
-      noticePeriod:         'noticePeriod',
-      qualification:        'highestQual',
-      skills:               'skills',
-      currentLocation:      'currentLocation',
+      name: 'fullName',
+      email: 'email',
+      phone: 'phone',
+      currentDesignation: 'currentTitle',
+      currentOrganization: 'currentCompany',
+      experience: 'totalExp',
+      currentCTC: 'currentCtc',
+      expectedCTC: 'expectedCtc',
+      noticePeriod: 'noticePeriod',
+      qualification: 'highestQual',
+      skills: 'skills',
+      currentLocation: 'currentLocation',
     };
     Object.entries(fieldMap).forEach(([frontKey, backKey]) => {
       if (req.body[frontKey] !== undefined) {
@@ -349,7 +353,7 @@ router.put('/candidates/:id/details', async (req, res) => {
     });
 
     // Also accept direct details patch (for backward compat)
-    const directFields = ['fullName', 'email', 'phone', 'currentTitle', 'totalExp', 'highestQual', 
+    const directFields = ['fullName', 'email', 'phone', 'currentTitle', 'totalExp', 'highestQual',
       'skills', 'currentLocation', 'currentCompany', 'currentCtc', 'expectedCtc', 'noticePeriod'];
     directFields.forEach(key => {
       if (req.body[key] !== undefined) candidate.details[key] = req.body[key];
@@ -360,16 +364,16 @@ router.put('/candidates/:id/details', async (req, res) => {
     const opening = await JobOpening.findById(candidate.jobOpeningId);
     if (opening) {
       const requirements = {
-        designation:          opening.designation,
-        department:           opening.department,
-        experience:           opening.experience,
+        designation: opening.designation,
+        department: opening.department,
+        experience: opening.experience,
         minimumQualification: opening.minimumQualification,
-        otherKeySkills:       opening.otherKeySkills,
+        otherKeySkills: opening.otherKeySkills,
       };
       const combined = { ...candidate.details.toObject(), notes: `${candidate.details.skills || ''} ${candidate.details.notes || ''}` };
       const match = scoreCandidate(combined, requirements);
-      candidate.matchScore    = match.score;
-      candidate.matchLevel    = match.matchLevel;
+      candidate.matchScore = match.score;
+      candidate.matchLevel = match.matchLevel;
       candidate.matchBreakdown = match.breakdown;
 
       // Sync to MRF and Google Sheet if candidate is offered/joined
@@ -392,7 +396,7 @@ router.put('/candidates/:id/details', async (req, res) => {
           opening.offerStatus = 'Offered';
         }
         await opening.save();
-        
+
         const { updateMRFInSheet } = await import('../services/googleSheetsService.js');
         await updateMRFInSheet(opening, opening.sheetRowIndex);
       }
@@ -408,40 +412,76 @@ router.put('/candidates/:id/details', async (req, res) => {
         title: 'Application Status Updated',
         message: `Your application status for ${opening ? opening.designation : 'the job'} has been updated to ${candidate.overallStatus}.`,
         type: 'STATUS_UPDATE',
-        link: '/candidate-status'
+        link: '/status'
+      });
+    }
+
+    // Notify Department Head if candidate is sent for approval
+    if (statusChanged && (candidate.overallStatus === 'Pending Head Approval' || candidate.overallStatus === 'Shared with HOD')) {
+      const msg = `Candidate ${candidate.details.fullName} is awaiting your approval for ${opening ? opening.designation : 'the job'}.`;
+      await Notification.create({
+        recipientRole: 'department_head',
+        title: 'Candidate Awaiting Approval',
+        message: msg,
+        type: 'CANDIDATE_APPROVAL_REQUEST',
+        link: `/recruitment/candidate/${candidate._id}`
+      });
+    }
+
+    // Notify HR if candidate is approved by Head
+    if (statusChanged && (candidate.overallStatus === 'Approved by Head' || candidate.overallStatus === 'Approved by HOD')) {
+      const msg = `Candidate ${candidate.details.fullName} has been approved by the Department Head for ${opening ? opening.designation : 'the job'}. You can now schedule an interview.`;
+      await Notification.create({
+        recipientRole: 'hr',
+        title: 'Candidate Approved by Head',
+        message: msg,
+        type: 'CANDIDATE_APPROVED_BY_HEAD',
+        link: `/recruitment/job/${opening ? opening._id : ''}`
+      });
+    }
+
+    // Notify HR if candidate is rejected by Head
+    if (statusChanged && (oldStatus === 'Pending Head Approval' || oldStatus === 'Shared with HOD') && candidate.overallStatus === 'Rejected') {
+      const msg = `Candidate ${candidate.details.fullName} was rejected by the Department Head for ${opening ? opening.designation : 'the job'}.`;
+      await Notification.create({
+        recipientRole: 'hr',
+        title: 'Candidate Rejected by Head',
+        message: msg,
+        type: 'CANDIDATE_REJECTED_BY_HEAD',
+        link: `/recruitment/job/${opening ? opening._id : ''}`
       });
     }
 
     // Notify HR and Dept Head if hired
     if (statusChanged && (candidate.overallStatus === 'Offer' || candidate.overallStatus === 'Joined')) {
-      const msg = candidate.overallStatus === 'Joined' 
+      const msg = candidate.overallStatus === 'Joined'
         ? `Candidate ${candidate.details.fullName} selected for ${opening.designation}. Job posting closed.`
         : `Candidate ${candidate.details.fullName} was offered the ${opening.designation} role.`;
-      await Notification.create({ recipientRole: 'admin', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED' });
-      await Notification.create({ recipientRole: 'department_head', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED' });
+      await Notification.create({ recipientRole: 'admin', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED', link: '/dashboard' });
+      await Notification.create({ recipientRole: 'department_head', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED', link: '/my-mrfs' });
     }
-    
+
     // Return flattened object for frontend
     const obj = candidate.toJSON();
     const d = obj.details || {};
     const ret = {
       ...obj,
-      name:                d.fullName         || obj.fileName || 'Unknown',
-      email:               d.email            || '',
-      phone:               d.phone            || '',
-      currentDesignation:  d.currentTitle     || '',
-      currentOrganization: d.currentCompany   || '',
-      experience:          d.totalExp         || '',
-      currentCTC:          d.currentCtc       || '',
-      expectedCTC:         d.expectedCtc      || '',
-      noticePeriod:        d.noticePeriod     || '',
-      qualification:       d.highestQual      || '',
-      skills:              d.skills           || '',
-      currentLocation:     d.currentLocation  || '',
-      hrNotes:             d.notes            || '',
-      stage:               obj.overallStatus  || 'Applied',
+      name: d.fullName || obj.fileName || 'Unknown',
+      email: d.email || '',
+      phone: d.phone || '',
+      currentDesignation: d.currentTitle || '',
+      currentOrganization: d.currentCompany || '',
+      experience: d.totalExp || '',
+      currentCTC: d.currentCtc || '',
+      expectedCTC: d.expectedCtc || '',
+      noticePeriod: d.noticePeriod || '',
+      qualification: d.highestQual || '',
+      skills: d.skills || '',
+      currentLocation: d.currentLocation || '',
+      hrNotes: d.notes || '',
+      stage: obj.overallStatus || 'Applied',
     };
-    
+
     res.json(ret);
   } catch (error) {
     console.error('Error updating candidate details:', error);
@@ -470,17 +510,17 @@ router.put('/candidates/:id/interview', async (req, res) => {
 
     candidate.interview = {
       scheduled: true,
-      date:  interviewDate  || candidate.interview?.date  || '',
-      time:  interviewTime  || candidate.interview?.time  || '',
-      mode:  modeMap[interviewMode] || 'offline',
-      type:  typeMap[interviewRound] || 'Technical',
+      date: interviewDate || candidate.interview?.date || '',
+      time: interviewTime || candidate.interview?.time || '',
+      mode: modeMap[interviewMode] || 'offline',
+      type: typeMap[interviewRound] || 'Technical',
       venue: interviewLocation || candidate.interview?.venue || '',
-      notes: interviewNotes   || candidate.interview?.notes || '',
-      link:  candidate.interview?.link || '',
+      notes: interviewNotes || candidate.interview?.notes || '',
+      link: candidate.interview?.link || '',
     };
 
     // Move stage to Interview when scheduled
-    if (candidate.overallStatus === 'Applied' || candidate.overallStatus === 'Screening' || candidate.overallStatus === 'new') {
+    if (candidate.overallStatus === 'Applied' || candidate.overallStatus === 'Screening' || candidate.overallStatus === 'new' || candidate.overallStatus === 'Approved by Head') {
       candidate.overallStatus = 'Interview';
     }
 
@@ -494,7 +534,7 @@ router.put('/candidates/:id/interview', async (req, res) => {
         title: 'Interview Scheduled',
         message: `An interview has been scheduled for your application${dateStr}.`,
         type: 'INTERVIEW_SCHEDULED',
-        link: '/candidate-status'
+        link: '/status'
       });
     }
 
@@ -533,35 +573,35 @@ router.get('/candidates/:id', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id).populate('jobOpeningId');
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
-    
+
     const obj = candidate.toJSON();
     const d = obj.details || {};
     const ret = {
       ...obj,
-      name:                 d.fullName         || obj.fileName || 'Unknown',
-      email:                d.email            || '',
-      phone:                d.phone            || '',
-      currentDesignation:   d.currentTitle     || '',
-      currentOrganization:  d.currentCompany   || '',
-      experience:           d.totalExp         || '',
-      currentCTC:           d.currentCtc       || '',
-      expectedCTC:          d.expectedCtc      || '',
-      noticePeriod:         d.noticePeriod     || '',
-      qualification:        d.highestQual      || '',
-      skills:               d.skills           || '',
-      currentLocation:      d.currentLocation  || '',
-      hrNotes:              d.notes            || '',
-      interviewDate:        obj.interview?.date          || '',
-      interviewTime:        obj.interview?.time          || '',
-      interviewMode:        obj.interview?.mode === 'online' ? 'Video Call' : 'In-Person',
-      interviewLocation:    obj.interview?.venue         || '',
-      interviewNotes:       obj.interview?.notes         || '',
-      interviewRound:       obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
-      interviewStatus:      obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
-      resumeUrl:            obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
-      stage:                obj.overallStatus || 'Applied',
+      name: d.fullName || obj.fileName || 'Unknown',
+      email: d.email || '',
+      phone: d.phone || '',
+      currentDesignation: d.currentTitle || '',
+      currentOrganization: d.currentCompany || '',
+      experience: d.totalExp || '',
+      currentCTC: d.currentCtc || '',
+      expectedCTC: d.expectedCtc || '',
+      noticePeriod: d.noticePeriod || '',
+      qualification: d.highestQual || '',
+      skills: d.skills || '',
+      currentLocation: d.currentLocation || '',
+      hrNotes: d.notes || '',
+      interviewDate: obj.interview?.date || '',
+      interviewTime: obj.interview?.time || '',
+      interviewMode: obj.interview?.mode === 'online' ? 'Video Call' : 'In-Person',
+      interviewLocation: obj.interview?.venue || '',
+      interviewNotes: obj.interview?.notes || '',
+      interviewRound: obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
+      interviewStatus: obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
+      resumeUrl: obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
+      stage: obj.overallStatus || 'Applied',
     };
-    
+
     res.json(ret);
   } catch (error) {
     console.error('Error retrieving candidate details:', error);
@@ -630,27 +670,27 @@ router.get('/candidates/download-all', async (req, res) => {
     };
 
     const rows = candidates.map((c, i) => {
-      const d  = c.details || {};
+      const d = c.details || {};
       const jo = c.jobOpeningId || {};
       return [
         i + 1,
-        d.fullName        || '',
-        d.phone           || '',
-        d.alternatePhone  || '',
-        d.email           || '',
+        d.fullName || '',
+        d.phone || '',
+        d.alternatePhone || '',
+        d.email || '',
         (typeof jo === 'object' ? jo.designation : '') || '',
-        (typeof jo === 'object' ? jo.department  : '') || '',
-        (typeof jo === 'object' ? jo.location    : '') || '',
-        d.highestQual     || '',
-        d.totalExp        || '',
+        (typeof jo === 'object' ? jo.department : '') || '',
+        (typeof jo === 'object' ? jo.location : '') || '',
+        d.highestQual || '',
+        d.totalExp || '',
         d.currentLocation || '',
-        d.currentCompany  || '',
-        d.currentCtc      || '',
-        d.expectedCtc     || '',
-        d.noticePeriod    || '',
+        d.currentCompany || '',
+        d.currentCtc || '',
+        d.expectedCtc || '',
+        d.noticePeriod || '',
         d.reasonForChange || '',
         STATUS_MAP[c.overallStatus] || c.overallStatus || 'New',
-        d.notes           || '',
+        d.notes || '',
       ].map(escapeCell).join(',');
     });
 
@@ -686,7 +726,7 @@ router.post('/score-preview', async (req, res) => {
     if (!candidateDetails || !requirements) {
       return res.status(400).json({ message: 'Missing candidateDetails or requirements' });
     }
-    
+
     try {
       const matchData = await scoreCandidateAI(candidateDetails, requirements);
       res.json(matchData);

@@ -106,7 +106,8 @@ router.post('/', protect, requireRole('department_head'), async (req, res) => {
       recipientRole: 'admin',
       title: 'New MRF Submitted',
       message: `1 pending approval: ${req.user.name} submitted a new MRF for ${saved.designation}.`,
-      type: 'MRF_CREATED'
+      type: 'MRF_CREATED',
+      link: '/mrf-approvals'
     });
 
     res.status(201).json(saved);
@@ -160,7 +161,8 @@ router.patch('/:id/submit', protect, requireRole('department_head'), async (req,
       recipientRole: 'admin',
       title: 'Draft MRF Submitted',
       message: `1 pending approval: ${req.user.name} submitted an MRF for ${saved.designation}.`,
-      type: 'MRF_CREATED'
+      type: 'MRF_CREATED',
+      link: '/mrf-approvals'
     });
 
     res.json(saved);
@@ -195,7 +197,8 @@ router.patch('/:id/approve', protect, requireRole('admin'), async (req, res) => 
       recipientRole: 'hr',
       title: 'MRF Approved',
       message: `The MRF for ${saved.designation} was approved by ${req.user.name}. Please create a job posting.`,
-      type: 'MRF_APPROVED'
+      type: 'MRF_APPROVED',
+      link: '/my-mrfs'
     });
 
     // Notify Dept Head
@@ -203,7 +206,8 @@ router.patch('/:id/approve', protect, requireRole('admin'), async (req, res) => 
       recipientRole: 'department_head',
       title: 'MRF Request Approved',
       message: `Your MRF request for ${saved.designation} has been approved.`,
-      type: 'MRF_APPROVED'
+      type: 'MRF_APPROVED',
+      link: '/my-mrfs'
     });
 
     res.json(saved);
@@ -237,7 +241,8 @@ router.patch('/:id/reject', protect, requireRole('admin'), async (req, res) => {
         recipientRole: 'department_head',
         title: 'MRF Rejected',
         message: `Your MRF for ${saved.designation} was rejected by ${req.user.name}. Note: ${saved.rejectionNote || 'None'}`,
-        type: 'MRF_REJECTED'
+        type: 'MRF_REJECTED',
+        link: '/my-mrfs'
       });
     }
 
@@ -280,7 +285,7 @@ router.patch('/:id/create-job', protect, requireRole('hr', 'admin'), async (req,
       title: 'New Job Posting',
       message: `A new role for ${saved.designation} is now open!`,
       type: 'JOB_POSTED',
-      link: '/mrf-status'
+      link: '/dashboard'
     });
 
     // Notify Dept Head and Admin
@@ -289,6 +294,7 @@ router.patch('/:id/create-job', protect, requireRole('hr', 'admin'), async (req,
       title: 'Job Posted Successfully',
       message: `Job posting for ${saved.designation} has been created successfully.`,
       type: 'JOB_POSTED',
+      link: '/my-mrfs'
     });
     
     await Notification.create({
@@ -296,6 +302,7 @@ router.patch('/:id/create-job', protect, requireRole('hr', 'admin'), async (req,
       title: 'Job Posted Successfully',
       message: `Job posting for ${saved.designation} has been created successfully.`,
       type: 'JOB_POSTED',
+      link: '/dashboard'
     });
 
     res.json(saved);
