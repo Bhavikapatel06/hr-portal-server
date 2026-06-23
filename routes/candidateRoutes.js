@@ -412,7 +412,7 @@ router.put('/candidates/:id/details', async (req, res) => {
     }
 
     // Notify Department Head if candidate is sent for approval
-    if (statusChanged && candidate.overallStatus === 'Pending Head Approval') {
+    if (statusChanged && (candidate.overallStatus === 'Pending Head Approval' || candidate.overallStatus === 'Shared with HOD')) {
       const msg = `Candidate ${candidate.details.fullName} is awaiting your approval for ${opening ? opening.designation : 'the job'}.`;
       await Notification.create({
         recipientRole: 'department_head',
@@ -424,7 +424,7 @@ router.put('/candidates/:id/details', async (req, res) => {
     }
 
     // Notify HR if candidate is approved by Head
-    if (statusChanged && candidate.overallStatus === 'Approved by Head') {
+    if (statusChanged && (candidate.overallStatus === 'Approved by Head' || candidate.overallStatus === 'Approved by HOD')) {
       const msg = `Candidate ${candidate.details.fullName} has been approved by the Department Head for ${opening ? opening.designation : 'the job'}. You can now schedule an interview.`;
       await Notification.create({
         recipientRole: 'hr',
@@ -436,7 +436,7 @@ router.put('/candidates/:id/details', async (req, res) => {
     }
 
     // Notify HR if candidate is rejected by Head
-    if (statusChanged && oldStatus === 'Pending Head Approval' && candidate.overallStatus === 'Rejected') {
+    if (statusChanged && (oldStatus === 'Pending Head Approval' || oldStatus === 'Shared with HOD') && candidate.overallStatus === 'Rejected') {
       const msg = `Candidate ${candidate.details.fullName} was rejected by the Department Head for ${opening ? opening.designation : 'the job'}.`;
       await Notification.create({
         recipientRole: 'hr',
