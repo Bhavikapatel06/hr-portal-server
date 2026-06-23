@@ -7,6 +7,7 @@ import Notification from '../models/Notification.js';
 import { parseResume, scoreCandidateAI } from '../services/parserService.js';
 import { scoreCandidate } from '../services/matchService.js';
 import { buildCandidateCSV } from '../services/csvService.js';
+import { syncCandidateToSheet, deleteCandidateFromSheet } from '../services/googleSheetsService.js';
 
 const router = express.Router();
 
@@ -71,6 +72,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
 
           await candidate.save();
           candidates.push(candidate);
+          await syncCandidateToSheet(candidate);
         } catch (fileError) {
           console.error(`Error parsing file ${file.originalname}:`, fileError);
           const candidate = new Candidate({
@@ -87,6 +89,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
           });
           await candidate.save();
           candidates.push(candidate);
+          await syncCandidateToSheet(candidate);
         }
       }
     }
@@ -214,6 +217,7 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
     });
 
     await candidate.save();
+    await syncCandidateToSheet(candidate);
 
     // Notify HR Manager about the application
     await Notification.create({
@@ -399,7 +403,8 @@ router.put('/candidates/:id/details', async (req, res) => {
     }
 
     await candidate.save();
-
+    await syncCandidateToSheet(candidate);
+    
     // Send Notifications
     if (statusChanged && candidate.details.email) {
       await Notification.create({
@@ -520,6 +525,7 @@ router.put('/candidates/:id/interview', async (req, res) => {
     }
 
     await candidate.save();
+    await syncCandidateToSheet(candidate);
 
     if (candidate.details?.email) {
       const dateStr = candidate.interview.date ? ` on ${candidate.interview.date}` : '';
@@ -554,6 +560,7 @@ router.put('/candidates/:id/feedback', async (req, res) => {
     }
 
     await candidate.save();
+    await syncCandidateToSheet(candidate);
     res.json(candidate);
   } catch (error) {
     console.error('Error updating feedback:', error);
@@ -613,6 +620,7 @@ router.delete('/candidates/:id', async (req, res) => {
     }
 
     await Candidate.findByIdAndDelete(req.params.id);
+    await deleteCandidateFromSheet(req.params.id);
     res.json({ message: 'Candidate deleted successfully' });
   } catch (error) {
     console.error('Error deleting candidate:', error);
