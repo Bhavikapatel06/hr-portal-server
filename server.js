@@ -60,6 +60,7 @@ const seedDatabase = async () => {
       { name: 'Demo Candidate',  email: 'candidate@hrportal.com',password: 'candidate123',role: 'candidate' },
       { name: 'Department Head', email: 'depthead@hrportal.com', password: 'depthead123', role: 'department_head' },
       { name: 'HR Manager',      email: 'hr@hrportal.com',       password: 'hr123456',    role: 'hr' },
+      { name: 'Technical Interviewer', email: 'interviewer@hrportal.com', password: 'interviewer123', role: 'interviewer' },
     ];
 
     for (const u of DEMO_USERS) {
@@ -74,6 +75,7 @@ const seedDatabase = async () => {
     console.log('  Candidate:   candidate@hrportal.com / candidate123');
     console.log('  Dept Head:   depthead@hrportal.com / depthead123');
     console.log('  HR Manager:  hr@hrportal.com / hr123456');
+    console.log('  Interviewer: interviewer@hrportal.com / interviewer123');
 
 
     // Seed job openings

@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema({
   name:  { type: String, required: true, trim: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true },
-  role:  { type: String, enum: ['candidate', 'department_head', 'hr', 'admin'], default: 'candidate' },
+  role:  { type: String, enum: ['candidate', 'department_head', 'hr', 'admin', 'interviewer'], default: 'candidate' },
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
@@ -20,6 +20,7 @@ const USERS = [
   { name: 'Candidate',  email: 'candidate@hrportal.com', password: 'candidate123', role: 'candidate' },
   { name: 'Dept Head',  email: 'depthead@hrportal.com',  password: 'depthead123',  role: 'department_head' },
   { name: 'HR Manager', email: 'hr@hrportal.com',        password: 'hr123456',     role: 'hr' },
+  { name: 'Interviewer', email: 'interviewer@hrportal.com', password: 'interviewer123', role: 'interviewer' },
 ];
 
 async function seedUsers() {

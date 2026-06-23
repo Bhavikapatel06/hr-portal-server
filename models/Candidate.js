@@ -46,6 +46,13 @@ const candidateSchema = new mongoose.Schema({
     link: { type: String, default: '' },
     venue: { type: String, default: '' },
     notes: { type: String, default: '' },
+    interviewerName: { type: String, default: '' },
+    interviewerEmail: { type: String, default: '' },
+    availabilityStatus: { type: String, enum: ['pending', 'accepted', 'rejected', ''], default: '' },
+    interviewerReason: { type: String, default: '' },
+    respondedAt: { type: Date, default: null },
+    candidateNotified: { type: Boolean, default: false },
+    candidateNotifiedAt: { type: Date, default: null },
   },
   feedback: {
     given: { type: Boolean, default: false },

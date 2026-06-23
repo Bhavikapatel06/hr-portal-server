@@ -11,6 +11,42 @@ import { syncCandidateToSheet, deleteCandidateFromSheet } from '../services/goog
 
 const router = express.Router();
 
+const flattenCandidate = (candidate) => {
+  const obj = candidate.toJSON();
+  const d = obj.details || {};
+  const interview = obj.interview || {};
+  return {
+    ...obj,
+    name: d.fullName || obj.fileName || 'Unknown',
+    email: d.email || '',
+    phone: d.phone || '',
+    currentDesignation: d.currentTitle || '',
+    currentOrganization: d.currentCompany || '',
+    experience: d.totalExp || '',
+    currentCTC: d.currentCtc || '',
+    expectedCTC: d.expectedCtc || '',
+    noticePeriod: d.noticePeriod || '',
+    qualification: d.highestQual || '',
+    skills: d.skills || '',
+    currentLocation: d.currentLocation || '',
+    hrNotes: d.notes || '',
+    interviewDate: interview.date || '',
+    interviewTime: interview.time || '',
+    interviewMode: interview.mode === 'online' ? 'Video Call' : 'In-Person',
+    interviewLocation: interview.venue || interview.link || '',
+    interviewNotes: interview.notes || '',
+    interviewRound: interview.type ? `Round 1 - ${interview.type}` : 'Round 1',
+    interviewStatus: interview.scheduled ? 'Scheduled' : 'Not Scheduled',
+    interviewerName: interview.interviewerName || '',
+    interviewerEmail: interview.interviewerEmail || '',
+    interviewerAvailabilityStatus: interview.availabilityStatus || '',
+    interviewerReason: interview.interviewerReason || '',
+    candidateNotified: !!interview.candidateNotified,
+    resumeUrl: obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
+    stage: obj.overallStatus || 'Applied',
+  };
+};
+
 // ── Multer for resume uploads ──────────────────────────────────────────────
 const uploadDir = 'uploads/';
 if (!fs.existsSync(uploadDir)) {
@@ -280,6 +316,11 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
         interviewNotes: obj.interview?.notes || '',
         interviewRound: obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
         interviewStatus: obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
+        interviewerName: obj.interview?.interviewerName || '',
+        interviewerEmail: obj.interview?.interviewerEmail || '',
+        interviewerAvailabilityStatus: obj.interview?.availabilityStatus || '',
+        interviewerReason: obj.interview?.interviewerReason || '',
+        candidateNotified: !!obj.interview?.candidateNotified,
         // Map resume url
         resumeUrl: obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
         // Map stage
@@ -497,7 +538,7 @@ router.put('/candidates/:id/interview', async (req, res) => {
 
     const {
       interviewDate, interviewTime, interviewMode, interviewLocation,
-      interviewerName, interviewRound, interviewNotes, interviewStatus,
+      interviewerName, interviewerEmail, interviewRound, interviewNotes, interviewStatus,
     } = req.body;
 
     // Map flat frontend fields to the nested interview schema
@@ -516,7 +557,14 @@ router.put('/candidates/:id/interview', async (req, res) => {
       type: typeMap[interviewRound] || 'Technical',
       venue: interviewLocation || candidate.interview?.venue || '',
       notes: interviewNotes || candidate.interview?.notes || '',
-      link: candidate.interview?.link || '',
+      link: (interviewLocation || '').startsWith('http') ? interviewLocation : candidate.interview?.link || '',
+      interviewerName: interviewerName || candidate.interview?.interviewerName || '',
+      interviewerEmail: (interviewerEmail || candidate.interview?.interviewerEmail || 'interviewer@hrportal.com').toLowerCase(),
+      availabilityStatus: 'pending',
+      interviewerReason: '',
+      respondedAt: null,
+      candidateNotified: false,
+      candidateNotifiedAt: null,
     };
 
     // Move stage to Interview when scheduled
@@ -527,20 +575,107 @@ router.put('/candidates/:id/interview', async (req, res) => {
     await candidate.save();
     await syncCandidateToSheet(candidate);
 
-    if (candidate.details?.email) {
-      const dateStr = candidate.interview.date ? ` on ${candidate.interview.date}` : '';
-      await Notification.create({
-        recipientEmail: candidate.details.email,
-        title: 'Interview Scheduled',
-        message: `An interview has been scheduled for your application${dateStr}.`,
-        type: 'INTERVIEW_SCHEDULED',
-        link: '/status'
-      });
-    }
+    const opening = await JobOpening.findById(candidate.jobOpeningId);
+    await Notification.create({
+      recipientEmail: candidate.interview.interviewerEmail,
+      title: 'Interview Availability Requested',
+      message: `Please confirm availability for ${candidate.details?.fullName || 'a candidate'} on ${candidate.interview.date || 'the selected date'} at ${candidate.interview.time || 'the selected time'}${opening ? ` for ${opening.designation}` : ''}.`,
+      type: 'INTERVIEW_AVAILABILITY_REQUEST',
+      link: '/interviews'
+    });
 
-    res.json(candidate);
+    res.json(flattenCandidate(candidate));
   } catch (error) {
     console.error('Error scheduling interview:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /interviews/me - interviewer dashboard requests
+router.get('/interviews/me', async (req, res) => {
+  try {
+    const email = (req.query.email || '').toLowerCase();
+    if (!email) return res.status(400).json({ message: 'Interviewer email is required' });
+
+    const candidates = await Candidate.find({
+      'interview.scheduled': true,
+      'interview.interviewerEmail': email,
+    }).populate('jobOpeningId').sort({ 'interview.date': 1, 'interview.time': 1, createdAt: -1 });
+
+    res.json(candidates.map(flattenCandidate));
+  } catch (error) {
+    console.error('Error loading interviewer requests:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// PATCH /candidates/:id/interview-response - interviewer accepts/rejects slot
+router.patch('/candidates/:id/interview-response', async (req, res) => {
+  try {
+    const { status, reason = '' } = req.body;
+    if (!['accepted', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'Status must be accepted or rejected' });
+    }
+
+    const candidate = await Candidate.findById(req.params.id).populate('jobOpeningId');
+    if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
+
+    candidate.interview.availabilityStatus = status;
+    candidate.interview.interviewerReason = reason;
+    candidate.interview.respondedAt = new Date();
+    await candidate.save();
+    await syncCandidateToSheet(candidate);
+
+    const candidateName = candidate.details?.fullName || 'Candidate';
+    const jobName = candidate.jobOpeningId?.designation || 'the job';
+    await Notification.create({
+      recipientRole: 'hr',
+      title: status === 'accepted' ? 'Interviewer Accepted Slot' : 'Interviewer Rejected Slot',
+      message: status === 'accepted'
+        ? `${candidate.interview.interviewerName || 'Interviewer'} accepted the interview slot for ${candidateName} (${jobName}).`
+        : `${candidate.interview.interviewerName || 'Interviewer'} rejected the interview slot for ${candidateName} (${jobName}). Reason: ${reason || 'No reason provided'}`,
+      type: status === 'accepted' ? 'INTERVIEWER_ACCEPTED' : 'INTERVIEWER_REJECTED',
+      link: `/recruitment/candidate/${candidate._id}`
+    });
+
+    res.json(flattenCandidate(candidate));
+  } catch (error) {
+    console.error('Error saving interviewer response:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /candidates/:id/notify-candidate - HR confirms interview to candidate
+router.post('/candidates/:id/notify-candidate', async (req, res) => {
+  try {
+    const candidate = await Candidate.findById(req.params.id).populate('jobOpeningId');
+    if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
+    if (candidate.interview?.availabilityStatus !== 'accepted') {
+      return res.status(400).json({ message: 'Candidate can be notified only after interviewer accepts the slot.' });
+    }
+    if (!candidate.details?.email) {
+      return res.status(400).json({ message: 'Candidate email is missing.' });
+    }
+
+    const dateStr = candidate.interview.date ? ` on ${candidate.interview.date}` : '';
+    const timeStr = candidate.interview.time ? ` at ${candidate.interview.time}` : '';
+    const place = candidate.interview.venue || candidate.interview.link || '';
+    await Notification.create({
+      recipientEmail: candidate.details.email,
+      title: 'Interview Scheduled',
+      message: `Your interview for ${candidate.jobOpeningId?.designation || 'the role'} is confirmed${dateStr}${timeStr}${place ? `. Location/link: ${place}` : ''}.`,
+      type: 'INTERVIEW_SCHEDULED',
+      link: '/status'
+    });
+
+    candidate.interview.candidateNotified = true;
+    candidate.interview.candidateNotifiedAt = new Date();
+    await candidate.save();
+    await syncCandidateToSheet(candidate);
+
+    res.json(flattenCandidate(candidate));
+  } catch (error) {
+    console.error('Error notifying candidate:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -675,6 +810,11 @@ router.get('/candidates/:id', async (req, res) => {
       interviewNotes: obj.interview?.notes || '',
       interviewRound: obj.interview?.type ? `Round 1 – ${obj.interview.type}` : 'Round 1',
       interviewStatus: obj.interview?.scheduled ? 'Scheduled' : 'Not Scheduled',
+      interviewerName: obj.interview?.interviewerName || '',
+      interviewerEmail: obj.interview?.interviewerEmail || '',
+      interviewerAvailabilityStatus: obj.interview?.availabilityStatus || '',
+      interviewerReason: obj.interview?.interviewerReason || '',
+      candidateNotified: !!obj.interview?.candidateNotified,
       resumeUrl: obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
       stage: obj.overallStatus || 'Applied',
     };
