@@ -421,13 +421,13 @@ router.get('/sheet', async (req, res) => {
   }
 });
 
-// ── GET /mrf/sheet/config — retrieve linked sheet ID ──────────────────────
-router.get('/sheet/config', protect, requireRole('admin', 'hr'), (req, res) => {
+// ── GET /mrf/sheet/config — retrieve linked sheet ID (public read) ─────────
+router.get('/sheet/config', (req, res) => {
   res.json({ sheetId: process.env.GOOGLE_SHEET_ID || '' });
 });
 
 // ── POST /mrf/sheet/config — update linked sheet ID ───────────────────────
-router.post('/sheet/config', protect, requireRole('admin'), async (req, res) => {
+router.post('/sheet/config', protect, requireRole('admin', 'hr'), async (req, res) => {
   try {
     const { sheetId } = req.body;
     if (!sheetId) {
