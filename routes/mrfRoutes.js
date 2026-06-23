@@ -8,7 +8,7 @@ import { parseMRF } from '../services/parserService.js';
 import { buildCandidateCSV } from '../services/csvService.js';
 import { generateMrfPDF } from '../services/pdfService.js';
 import { protect, requireRole } from '../middleware/authMiddleware.js';
-import { appendMRFToSheet, updateMRFInSheet, fetchAllFromSheet } from '../services/googleSheetsService.js';
+import { appendMRFToSheet, updateMRFInSheet, fetchAllFromSheet, syncCandidateToSheet } from '../services/googleSheetsService.js';
 
 const router = express.Router();
 
@@ -417,6 +417,82 @@ router.get('/sheet', async (req, res) => {
     res.json(rows);
   } catch (error) {
     console.error('Error fetching from sheet:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── GET /mrf/sheet/config — retrieve linked sheet ID ──────────────────────
+router.get('/sheet/config', protect, requireRole('admin', 'hr'), (req, res) => {
+  res.json({ sheetId: process.env.GOOGLE_SHEET_ID || '' });
+});
+
+// ── POST /mrf/sheet/config — update linked sheet ID ───────────────────────
+router.post('/sheet/config', protect, requireRole('admin'), async (req, res) => {
+  try {
+    const { sheetId } = req.body;
+    if (!sheetId) {
+      return res.status(400).json({ message: 'Spreadsheet ID is required.' });
+    }
+
+    // Update in process.env
+    process.env.GOOGLE_SHEET_ID = sheetId.trim();
+
+    // Persist to .env file
+    const envPath = fs.existsSync('.env') ? '.env' : '../.env';
+    if (fs.existsSync(envPath)) {
+      let content = fs.readFileSync(envPath, 'utf8');
+      if (content.includes('GOOGLE_SHEET_ID=')) {
+        content = content.replace(/GOOGLE_SHEET_ID=.*/, `GOOGLE_SHEET_ID=${sheetId.trim()}`);
+      } else {
+        content += `\nGOOGLE_SHEET_ID=${sheetId.trim()}\n`;
+      }
+      fs.writeFileSync(envPath, content);
+      console.log(`[Config] GOOGLE_SHEET_ID updated to ${sheetId.trim()} in .env`);
+    } else {
+      fs.writeFileSync('.env', `GOOGLE_SHEET_ID=${sheetId.trim()}\n`);
+    }
+
+    res.json({ message: 'Google Sheet configuration updated successfully.', sheetId: process.env.GOOGLE_SHEET_ID });
+  } catch (error) {
+    console.error('Error updating sheet config:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── POST /mrf/sheet/sync-all — manually sync all DB records to sheet ──────────
+router.post('/sheet/sync-all', protect, requireRole('admin', 'hr'), async (req, res) => {
+  try {
+    const mrfs = await JobOpening.find({}).sort({ createdAt: 1 });
+    let mrfUpdated = 0;
+    let mrfAppended = 0;
+
+    for (const mrf of mrfs) {
+      if (mrf.sheetRowIndex || mrf.mrfSheetRowIndex) {
+        await updateMRFInSheet(mrf, mrf.mrfSheetRowIndex || mrf.sheetRowIndex);
+        mrfUpdated++;
+      } else {
+        const rowIndex = await appendMRFToSheet(mrf);
+        if (rowIndex) mrfAppended++;
+      }
+    }
+
+    const candidates = await Candidate.find({}).sort({ createdAt: 1 });
+    let candSynced = 0;
+
+    for (const cand of candidates) {
+      await syncCandidateToSheet(cand);
+      candSynced++;
+    }
+
+    res.json({
+      message: 'Database synced successfully with Google Sheets.',
+      mrfTotal: mrfs.length,
+      mrfUpdated,
+      mrfAppended,
+      candidatesSynced: candSynced
+    });
+  } catch (error) {
+    console.error('Error during manual sync:', error);
     res.status(500).json({ message: error.message });
   }
 });
