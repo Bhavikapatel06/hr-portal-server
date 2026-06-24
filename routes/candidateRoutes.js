@@ -8,6 +8,7 @@ import { parseResume, scoreCandidateAI } from '../services/parserService.js';
 import { scoreCandidate } from '../services/matchService.js';
 import { buildCandidateCSV } from '../services/csvService.js';
 import { syncCandidateToSheet, deleteCandidateFromSheet } from '../services/googleSheetsService.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -45,6 +46,19 @@ const flattenCandidate = (candidate) => {
     resumeUrl: obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
     stage: obj.overallStatus || 'Applied',
   };
+};
+
+// Optional auth helper: attaches req.user if a valid token is present, but never blocks.
+const optionalAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return next();
+  // Re-use protect logic but swallow errors
+  try {
+    await new Promise((resolve, reject) => {
+      protect(req, res, (err) => (err ? reject(err) : resolve()));
+    });
+  } catch (_) { /* ignore */ }
+  next();
 };
 
 // ── Multer for resume uploads ──────────────────────────────────────────────
@@ -132,7 +146,6 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
 
     const allCandidates = await Candidate.find({ jobOpeningId }).sort({ matchScore: -1 });
 
-    // Notifications for HR Manager
     let highMatches = candidates.filter(c => c.matchScore > 80).length;
     await Notification.create({
       recipientRole: 'hr',
@@ -158,7 +171,7 @@ router.post('/mrf/:jobOpeningId/resumes', upload.array('resumes'), async (req, r
   }
 });
 
-// ── POST /mrf/:jobOpeningId/parse-resume — parse resume, return fields, do NOT save ──
+// ── POST /mrf/:jobOpeningId/parse-resume — parse resume, do NOT save ───────
 router.post('/mrf/:jobOpeningId/parse-resume', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No resume file uploaded' });
@@ -193,33 +206,51 @@ router.post('/mrf/:jobOpeningId/parse-resume', upload.single('resume'), async (r
 });
 
 // ── POST /mrf/:jobOpeningId/apply — candidate apply via form ───────────────
-router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
+//
+// Data Isolation: if a candidate is logged in, the candidate's user email
+// from the JWT is used as the authoritative email on the application,
+// preventing impersonation of other candidates.
+router.post('/mrf/:jobOpeningId/apply', protect, async (req, res) => {
   const { jobOpeningId } = req.params;
   try {
+    if (req.user.role !== 'candidate') {
+      return res.status(403).json({ message: 'Only candidate accounts may apply.' });
+    }
+
     const opening = await JobOpening.findById(jobOpeningId);
     if (!opening) return res.status(404).json({ message: 'Job opening not found' });
 
     const {
-      fullName, email, phone, alternatePhone, currentTitle,
+      fullName, phone, alternatePhone, currentTitle,
       totalExp, highestQual, skills, currentLocation,
       currentCompany, currentCtc, expectedCtc, noticePeriod,
       reasonForChange, notes,
       fileName, filePath, fileSize,
     } = req.body;
 
-    if (!fullName?.trim()) return res.status(400).json({ message: 'Candidate name is required' });
+    const candidateName = (fullName || req.user.name || '').trim();
+    if (!candidateName) return res.status(400).json({ message: 'Candidate name is required' });
+
+    // Prevent duplicate applications by the same candidate for the same job
+    const existing = await Candidate.findOne({
+      jobOpeningId,
+      'details.email': req.user.email,
+    });
+    if (existing) {
+      return res.status(409).json({ message: 'You have already applied to this position.' });
+    }
 
     const requirements = {
       designation: opening.designation,
       department: opening.department,
       experience: opening.experience,
-      minimumQualification: opening.minbbimumQualification,
+      minimumQualification: opening.minimumQualification,
       otherKeySkills: opening.otherKeySkills,
     };
 
     const details = {
-      fullName: fullName.trim(),
-      email: email || '',
+      fullName: candidateName,
+      email: req.user.email, // <-- AUTHORITATIVE: from logged-in user
       phone: phone || '',
       alternatePhone: alternatePhone || '',
       currentTitle: currentTitle || opening.designation,
@@ -255,13 +286,21 @@ router.post('/mrf/:jobOpeningId/apply', async (req, res) => {
     await candidate.save();
     await syncCandidateToSheet(candidate);
 
-    // Notify HR Manager about the application
     await Notification.create({
       recipientRole: 'hr',
       title: 'New Candidate Applied',
-      message: `A new candidate applied for ${opening.designation}.`,
+      message: `${details.fullName} applied for ${opening.designation}.`,
       type: 'CANDIDATE_APPLIED',
       link: `/recruitment/job/${opening._id}`
+    });
+
+    // Confirmation notification only to THIS candidate
+    await Notification.create({
+      recipientEmail: req.user.email,
+      title: 'Application Submitted',
+      message: `Your application for ${opening.designation} has been received. We will keep you posted.`,
+      type: 'APPLICATION_SUBMITTED',
+      link: '/status',
     });
 
     if (match.score > 80) {
@@ -288,13 +327,11 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
     if (!opening) return res.status(404).json({ message: 'Job opening not found' });
     const candidates = await Candidate.find({ jobOpeningId: req.params.jobOpeningId }).sort({ matchScore: -1 });
 
-    // Flatten details + map overallStatus to stage for frontend
     const mapped = candidates.map(c => {
       const obj = c.toJSON();
       const d = obj.details || {};
       return {
         ...obj,
-        // Flatten details to top-level fields expected by frontend
         name: d.fullName || obj.fileName || 'Unknown',
         email: d.email || '',
         phone: d.phone || '',
@@ -308,7 +345,6 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
         skills: d.skills || '',
         currentLocation: d.currentLocation || '',
         hrNotes: d.notes || '',
-        // Map interview fields
         interviewDate: obj.interview?.date || '',
         interviewTime: obj.interview?.time || '',
         interviewMode: obj.interview?.mode === 'online' ? 'Video Call' : 'In-Person',
@@ -321,9 +357,7 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
         interviewerAvailabilityStatus: obj.interview?.availabilityStatus || '',
         interviewerReason: obj.interview?.interviewerReason || '',
         candidateNotified: !!obj.interview?.candidateNotified,
-        // Map resume url
         resumeUrl: obj.filePath ? `http://localhost:5000/${obj.filePath}` : null,
-        // Map stage
         stage: obj.overallStatus || 'Applied',
       };
     });
@@ -335,7 +369,7 @@ router.get('/mrf/:jobOpeningId/candidates', async (req, res) => {
   }
 });
 
-// ── GET /mrf/:jobOpeningId/download-csv — stream CSV download ─────────────
+// ── GET /mrf/:jobOpeningId/download-csv — stream CSV download ──────────────
 router.get('/mrf/:jobOpeningId/download-csv', async (req, res) => {
   try {
     const opening = await JobOpening.findById(req.params.jobOpeningId);
@@ -346,7 +380,7 @@ router.get('/mrf/:jobOpeningId/download-csv', async (req, res) => {
 
     const safeName = opening.designation.replace(/[^a-zA-Z0-9]/g, '_');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="MRF-${safeName}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename=\"MRF-${safeName}.csv\"`);
     res.send(csv);
   } catch (error) {
     console.error('Error generating CSV download:', error);
@@ -363,7 +397,6 @@ router.put('/candidates/:id/details', async (req, res) => {
     let statusChanged = false;
     let oldStatus = candidate.overallStatus;
 
-    // Extract stage if sent from frontend
     if (req.body.stage && req.body.stage !== candidate.overallStatus) {
       candidate.overallStatus = req.body.stage;
       statusChanged = true;
@@ -372,7 +405,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       candidate.details.notes = req.body.hrNotes;
     }
 
-    // Map flat frontend field names to nested details fields
     const fieldMap = {
       name: 'fullName',
       email: 'email',
@@ -393,7 +425,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       }
     });
 
-    // Also accept direct details patch (for backward compat)
     const directFields = ['fullName', 'email', 'phone', 'currentTitle', 'totalExp', 'highestQual',
       'skills', 'currentLocation', 'currentCompany', 'currentCtc', 'expectedCtc', 'noticePeriod'];
     directFields.forEach(key => {
@@ -417,7 +448,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       candidate.matchLevel = match.matchLevel;
       candidate.matchBreakdown = match.breakdown;
 
-      // Sync to MRF and Google Sheet if candidate is offered/joined
       if (candidate.overallStatus === 'Offer' || candidate.overallStatus === 'Joined') {
         opening.offeredCandidateName = candidate.details.fullName || '';
         opening.offeredCTC = candidate.details.expectedCtc || '';
@@ -445,8 +475,8 @@ router.put('/candidates/:id/details', async (req, res) => {
 
     await candidate.save();
     await syncCandidateToSheet(candidate);
-    
-    // Send Notifications
+
+    // Targeted notifications — sent ONLY to the affected candidate by email
     if (statusChanged && candidate.details.email) {
       await Notification.create({
         recipientEmail: candidate.details.email,
@@ -457,7 +487,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       });
     }
 
-    // Notify Department Head if candidate is sent for approval
     if (statusChanged && (candidate.overallStatus === 'Pending Head Approval' || candidate.overallStatus === 'Shared with HOD')) {
       const msg = `Candidate ${candidate.details.fullName} is awaiting your approval for ${opening ? opening.designation : 'the job'}.`;
       await Notification.create({
@@ -469,7 +498,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       });
     }
 
-    // Notify HR if candidate is approved by Head
     if (statusChanged && (candidate.overallStatus === 'Approved by Head' || candidate.overallStatus === 'Approved by HOD')) {
       const msg = `Candidate ${candidate.details.fullName} has been approved by the Department Head for ${opening ? opening.designation : 'the job'}. You can now schedule an interview.`;
       await Notification.create({
@@ -481,7 +509,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       });
     }
 
-    // Notify HR if candidate is rejected by Head
     if (statusChanged && (oldStatus === 'Pending Head Approval' || oldStatus === 'Shared with HOD') && candidate.overallStatus === 'Rejected') {
       const msg = `Candidate ${candidate.details.fullName} was rejected by the Department Head for ${opening ? opening.designation : 'the job'}.`;
       await Notification.create({
@@ -493,7 +520,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       });
     }
 
-    // Notify HR and Dept Head if hired
     if (statusChanged && (candidate.overallStatus === 'Offer' || candidate.overallStatus === 'Joined')) {
       const msg = candidate.overallStatus === 'Joined'
         ? `Candidate ${candidate.details.fullName} selected for ${opening.designation}. Job posting closed.`
@@ -502,7 +528,6 @@ router.put('/candidates/:id/details', async (req, res) => {
       await Notification.create({ recipientRole: 'department_head', title: 'Candidate Selected', message: msg, type: 'CANDIDATE_HIRED', link: '/my-mrfs' });
     }
 
-    // Return flattened object for frontend
     const obj = candidate.toJSON();
     const d = obj.details || {};
     const ret = {
@@ -538,10 +563,9 @@ router.put('/candidates/:id/interview', async (req, res) => {
 
     const {
       interviewDate, interviewTime, interviewMode, interviewLocation,
-      interviewerName, interviewerEmail, interviewRound, interviewNotes, interviewStatus,
+      interviewerName, interviewerEmail, interviewRound, interviewNotes,
     } = req.body;
 
-    // Map flat frontend fields to the nested interview schema
     const modeMap = { 'In-Person': 'offline', 'Video Call': 'online', 'Phone Screen': 'online', 'Panel': 'offline' };
     const typeMap = {
       'Round 1 – HR Screen': 'HR', 'Round 1': 'HR',
@@ -567,7 +591,6 @@ router.put('/candidates/:id/interview', async (req, res) => {
       candidateNotifiedAt: null,
     };
 
-    // Move stage to Interview when scheduled
     if (candidate.overallStatus === 'Applied' || candidate.overallStatus === 'Screening' || candidate.overallStatus === 'new' || candidate.overallStatus === 'Approved by Head') {
       candidate.overallStatus = 'Interview';
     }
@@ -576,6 +599,7 @@ router.put('/candidates/:id/interview', async (req, res) => {
     await syncCandidateToSheet(candidate);
 
     const opening = await JobOpening.findById(candidate.jobOpeningId);
+    // Interviewer-specific notification (single recipient)
     await Notification.create({
       recipientEmail: candidate.interview.interviewerEmail,
       title: 'Interview Availability Requested',
@@ -646,6 +670,9 @@ router.patch('/candidates/:id/interview-response', async (req, res) => {
 });
 
 // POST /candidates/:id/notify-candidate - HR confirms interview to candidate
+//
+// Data Isolation: notification recipient is the specific candidate's email
+// (stored on the Candidate document). No other candidate will see it.
 router.post('/candidates/:id/notify-candidate', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id).populate('jobOpeningId');
@@ -661,7 +688,7 @@ router.post('/candidates/:id/notify-candidate', async (req, res) => {
     const timeStr = candidate.interview.time ? ` at ${candidate.interview.time}` : '';
     const place = candidate.interview.venue || candidate.interview.link || '';
     await Notification.create({
-      recipientEmail: candidate.details.email,
+      recipientEmail: candidate.details.email, // <-- targets ONLY this candidate
       title: 'Interview Scheduled',
       message: `Your interview for ${candidate.jobOpeningId?.designation || 'the role'} is confirmed${dateStr}${timeStr}${place ? `. Location/link: ${place}` : ''}.`,
       type: 'INTERVIEW_SCHEDULED',
@@ -680,7 +707,7 @@ router.post('/candidates/:id/notify-candidate', async (req, res) => {
   }
 });
 
-// ── PUT /candidates/:id/feedback — record decision ─────────────────────────
+// ── PUT /candidates/:id/feedback ───────────────────────────────────────────
 router.put('/candidates/:id/feedback', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id);
@@ -703,11 +730,9 @@ router.put('/candidates/:id/feedback', async (req, res) => {
   }
 });
 
-// ── GET /candidates/download-all — global FIFO CSV across all openings ─────
-// MUST be before /candidates/:id to prevent 'download-all' being treated as ObjectId
+// ── GET /candidates/download-all (must precede /candidates/:id) ────────────
 router.get('/candidates/download-all', async (req, res) => {
   try {
-    // FIFO: oldest application first
     const candidates = await Candidate.find()
       .populate('jobOpeningId')
       .sort({ createdAt: 1 });
@@ -725,8 +750,10 @@ router.get('/candidates/download-all', async (req, res) => {
     ];
 
     const escapeCell = (val) => {
-      const str = String(val === null || val === undefined ? '' : val).replace(/"/g, '""');
-      return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
+      const str = String(val === null || val === undefined ? '' : val).replace(/\"/g, '\"\"');
+      return str.includes(',') || str.includes('\n') || str.includes('"')
+  ? `"${str}"`
+  : str;
     };
 
     const rows = candidates.map((c, i) => {
@@ -754,11 +781,11 @@ router.get('/candidates/download-all', async (req, res) => {
       ].map(escapeCell).join(',');
     });
 
-    const csv = [HEADERS.map(escapeCell).join(','), ...rows].join('\n');
+  const csv = [HEADERS.map(escapeCell).join(','), ...rows].join("\n");
     const now = new Date().toISOString().slice(0, 10);
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="All-Candidates-${now}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename=\"All-Candidates-${now}.csv\"`);
     res.send(csv);
   } catch (error) {
     console.error('Error generating all-candidates CSV:', error);
@@ -766,11 +793,41 @@ router.get('/candidates/download-all', async (req, res) => {
   }
 });
 
-// ── GET /candidates/status/:email — get status for all applications by email ──
-// MUST be before /candidates/:id to prevent 'status' being treated as ObjectId
-router.get('/candidates/status/:email', async (req, res) => {
+// ── GET /candidates/me — return the logged-in candidate's applications ─────
+// Used by the candidate dashboard. Strictly scoped to the JWT user's email.
+router.get('/candidates/me', protect, async (req, res) => {
   try {
-    const candidates = await Candidate.find({ 'details.email': req.params.email })
+    if (req.user.role !== 'candidate') {
+      return res.status(403).json({ message: 'Only candidate accounts may use this endpoint.' });
+    }
+    const candidates = await Candidate.find({ 'details.email': req.user.email })
+      .populate('jobOpeningId')
+      .sort({ createdAt: -1 });
+    res.json(candidates);
+  } catch (error) {
+    console.error('Error retrieving my candidate applications:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── GET /candidates/status/:email ──────────────────────────────────────────
+//
+// Data Isolation:
+//   - Candidates may only query their OWN email; any other email returns 403.
+//   - Staff (hr/admin/department_head/interviewer) may query any email.
+router.get('/candidates/status/:email', protect, async (req, res) => {
+  try {
+    const queried = (req.params.email || '').toLowerCase();
+    const myEmail = (req.user.email || '').toLowerCase();
+    const isStaff = ['hr', 'admin', 'department_head', 'interviewer'].includes(req.user.role);
+
+    if (!isStaff && queried !== myEmail) {
+    return res.status(403).json({
+  message: "Forbidden: cannot view another candidate's data."
+});
+    }
+
+    const candidates = await Candidate.find({ 'details.email': queried })
       .populate('jobOpeningId')
       .sort({ createdAt: -1 });
     res.json(candidates);
@@ -780,11 +837,22 @@ router.get('/candidates/status/:email', async (req, res) => {
   }
 });
 
-// ── GET /candidates/:id — get single candidate with populated job details ──
-router.get('/candidates/:id', async (req, res) => {
+// ── GET /candidates/:id — single candidate ─────────────────────────────────
+//
+// Data Isolation: a candidate may only read a record whose details.email
+// matches their own logged-in email.
+router.get('/candidates/:id', optionalAuth, async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id).populate('jobOpeningId');
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
+
+    if (req.user && req.user.role === 'candidate') {
+      if ((candidate.details?.email || '').toLowerCase() !== (req.user.email || '').toLowerCase()) {
+        return res.status(403).json({
+  message: "Forbidden: cannot view another candidate's data."
+});
+      }
+    }
 
     const obj = candidate.toJSON();
     const d = obj.details || {};
@@ -826,7 +894,7 @@ router.get('/candidates/:id', async (req, res) => {
   }
 });
 
-// ── DELETE /candidates/:id — delete candidate ──────────────────────────────
+// ── DELETE /candidates/:id ─────────────────────────────────────────────────
 router.delete('/candidates/:id', async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id);
@@ -845,7 +913,7 @@ router.delete('/candidates/:id', async (req, res) => {
   }
 });
 
-// ── GET /candidates — all candidates globally (dashboard stats) ────────────
+// ── GET /candidates ────────────────────────────────────────────────────────
 router.get('/candidates', async (req, res) => {
   try {
     const candidates = await Candidate.find().populate('jobOpeningId').sort({ createdAt: -1 });
@@ -861,7 +929,7 @@ router.get('/candidates', async (req, res) => {
   }
 });
 
-// ── POST /score-preview — Live AI match scoring for frontend preview ───────
+// ── POST /score-preview ────────────────────────────────────────────────────
 router.post('/score-preview', async (req, res) => {
   try {
     const { candidateDetails, requirements } = req.body;
