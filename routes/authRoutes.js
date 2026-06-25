@@ -14,7 +14,7 @@ const generateToken = (id) => {
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, department } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Please provide name, email and password.' });
@@ -34,6 +34,7 @@ router.post('/register', async (req, res) => {
       email,
       password,
       role: role || 'candidate',
+      department: department || '',
     });
 
     const token = generateToken(user._id);
@@ -45,6 +46,7 @@ router.post('/register', async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        department: user.department,
       },
     });
   } catch (err) {
@@ -81,6 +83,7 @@ router.post('/login', async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        department: user.department,
       },
     });
   } catch (err) {
@@ -96,6 +99,7 @@ router.get('/me', protect, async (req, res) => {
     name: req.user.name,
     email: req.user.email,
     role: req.user.role,
+    department: req.user.department,
   });
 });
 

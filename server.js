@@ -58,7 +58,7 @@ const seedDatabase = async () => {
     const DEMO_USERS = [
       { name: 'HR Admin',        email: 'admin@hrportal.com',    password: 'admin123',    role: 'admin' },
       { name: 'Demo Candidate',  email: 'candidate@hrportal.com',password: 'candidate123',role: 'candidate' },
-      { name: 'Department Head', email: 'depthead@hrportal.com', password: 'depthead123', role: 'department_head' },
+      { name: 'Department Head', email: 'depthead@hrportal.com', password: 'depthead123', role: 'department_head', department: 'Engineering' },
       { name: 'HR Manager',      email: 'hr@hrportal.com',       password: 'hr123456',    role: 'hr' },
       { name: 'Technical Interviewer', email: 'interviewer@hrportal.com', password: 'interviewer123', role: 'interviewer' },
     ];
@@ -68,6 +68,12 @@ const seedDatabase = async () => {
       if (!exists) {
         await User.create(u);
         console.log(`  Created demo user: ${u.email} (${u.role})`);
+      } else {
+        exists.role = u.role;
+        if (u.department !== undefined) {
+          exists.department = u.department;
+        }
+        await exists.save();
       }
     }
     console.log('Demo users ready.');

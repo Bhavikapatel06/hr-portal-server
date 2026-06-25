@@ -551,11 +551,11 @@ router.delete('/:id', protect, requireRole('admin', 'department_head'), async (r
     const mrf = await JobOpening.findById(req.params.id);
     if (!mrf) return res.status(404).json({ message: 'Job opening not found' });
 
-    // Restrict department head to only delete their own draft MRFs (or unowned/seeded ones)
+    // Restrict department head to only delete their own MRFs (or unowned/seeded ones)
     if (req.user.role === 'department_head') {
       const ownedByUser = !mrf.submittedBy || mrf.submittedBy === req.user.name;
-      if (!ownedByUser || mrf.mrfStatus !== 'Draft') {
-        return res.status(403).json({ message: 'Access denied. You can only delete your own draft MRFs.' });
+      if (!ownedByUser) {
+        return res.status(403).json({ message: 'Access denied. You can only delete your own MRFs.' });
       }
     }
 
